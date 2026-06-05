@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">AiSmartNory</string>
+    <string name="title_activity_main">AiSmartNory</string>
+    <string name="package_name">com.aismart.app</string>
+    <string name="custom_url_scheme">com.aismart.app</string>
+</resources>

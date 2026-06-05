@@ -1,0 +1,346 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;550;700;850&family=Inter:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+
+@media print {
+  /* Set clean page dimensions with proper comfortable margins */
+  @page {
+    size: A4 portrait;
+    margin: 15mm 15mm 15mm 15mm;
+  }
+
+  /* Completely hide the entire interactive React tree, navigation, sidebars, and control buttons */
+  #root, 
+  nav, 
+  header, 
+  footer, 
+  button, 
+  select, 
+  input, 
+  textarea, 
+  form, 
+  aside,
+  .no-print {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* Force display of backgrounds, colors and borders in PDF/Print browsers */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* Reset body styling for crisp print rendering */
+  body {
+    background-color: #ffffff !important;
+    color: #111111 !important;
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Mount our isolated Portal container block and allow multi-page flow and breaks */
+  body > #printable-itinerary-invoice-format {
+    display: block !important;
+    visibility: visible !important;
+    position: relative !important;
+    width: 100% !important;
+    height: auto !important;
+    background: #ffffff !important;
+    color: #0d1b2a !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  body > #printable-itinerary-invoice-format * {
+    visibility: visible !important;
+  }
+
+  #printable-itinerary-invoice-format .print-days-grid {
+    display: block !important;
+    column-count: 2 !important;
+    column-gap: 16px !important;
+    border: none !important;
+    background-color: transparent !important;
+  }
+
+  #printable-itinerary-invoice-format .print-days-grid > div {
+    display: inline-block !important;
+    width: 100% !important;
+    margin-bottom: 16px !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Soft borders and light layout grids to maximize print aesthetic values */
+  .grid {
+    border: 1px solid #e2e8f0 !important;
+    background-color: #f8fafc !important;
+  }
+
+  /* Avoid cutting headers or items across page folds */
+  .page-break-avoid,
+  [style*="page-break-inside: avoid"],
+  h1, h2, h3, h4 {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+}
+
+/* -------------------------------------------------------------
+   DYNAMIC REGIONAL & SEASONAL THEME ENGINE OVERRIDES
+   ------------------------------------------------------------- */
+
+/* Shared variables setup */
+.theme-autumn {
+  --color-primary: #4F46E5;
+  --color-primary-hover: #4338CA;
+  --color-primary-light: #E0E7FF;
+  --color-primary-border: #C7D2FE;
+  --color-primary-text-dark: #312E81;
+  --color-bg-gradient: linear-gradient(135deg, rgba(79, 70, 229, 0.04) 0%, rgba(59, 130, 246, 0.02) 100%);
+  --color-bg-page: #F8FAFC;
+}
+
+.theme-spring {
+  --color-primary: #D97706; /* Sahara Gold Amber */
+  --color-primary-hover: #B45309;
+  --color-primary-light: #FEF3C7;
+  --color-primary-border: #FDE68A;
+  --color-primary-text-dark: #78350F;
+  --color-bg-gradient: linear-gradient(135deg, rgba(217, 119, 6, 0.05) 0%, rgba(245, 158, 11, 0.02) 100%);
+  --color-bg-page: #FEFDFA; /* Warm Desert dunes sand */
+}
+
+.theme-summer {
+  --color-primary: #0D9488; /* Mediterranean Teal */
+  --color-primary-hover: #0F766E;
+  --color-primary-light: #CCFBF1;
+  --color-primary-border: #99F6E4;
+  --color-primary-text-dark: #115E59;
+  --color-bg-gradient: linear-gradient(135deg, rgba(13, 148, 136, 0.05) 0%, rgba(6, 182, 212, 0.02) 100%);
+  --color-bg-page: #F0FDFA; /* Refreshing seafoam white */
+}
+
+.theme-winter {
+  --color-primary: #059669; /* Kabylie Pine Evergreen Emerald */
+  --color-primary-hover: #047857;
+  --color-primary-light: #D1FAE5;
+  --color-primary-border: #A7F3D0;
+  --color-primary-text-dark: #064E3B;
+  --color-bg-gradient: linear-gradient(135deg, rgba(5, 150, 105, 0.05) 0%, rgba(16, 185, 129, 0.02) 100%);
+  --color-bg-page: #F0FDF4; /* Crisp forest cedar */
+}
+
+.theme-festive {
+  --color-primary: #E11D48; /* Algerian Festive Crimson Red */
+  --color-primary-hover: #BE123C;
+  --color-primary-light: #FCE7F3; /* Pinkish-rose blend */
+  --color-primary-border: #FBCFE8;
+  --color-primary-text-dark: #9F1239;
+  --color-bg-gradient: linear-gradient(135deg, rgba(225, 29, 72, 0.04) 0%, rgba(16, 185, 129, 0.03) 100%);
+  --color-bg-page: #FAFDF9; /* Algerian white background with crisp light green hint */
+}
+
+/* Base Body Color Overrides */
+.theme-autumn, .theme-spring, .theme-summer, .theme-winter, .theme-festive {
+  background-color: var(--color-bg-page) !important;
+  transition: background-color 0.4s ease, color 0.4s ease;
+}
+
+/* Background Color Class Overrides */
+.theme-spring .bg-indigo-600, .theme-summer .bg-indigo-600, .theme-winter .bg-indigo-600, .theme-festive .bg-indigo-600 {
+  background-color: var(--color-primary) !important;
+}
+.theme-spring .bg-indigo-700, .theme-summer .bg-indigo-700, .theme-winter .bg-indigo-700, .theme-festive .bg-indigo-700 {
+  background-color: var(--color-primary-hover) !important;
+}
+.theme-spring .bg-indigo-50, .theme-summer .bg-indigo-50, .theme-winter .bg-indigo-50, .theme-festive .bg-indigo-50 {
+  background-color: var(--color-primary-light) !important;
+}
+.theme-spring .bg-indigo-50\/20, .theme-summer .bg-indigo-50\/20, .theme-winter .bg-indigo-50\/20, .theme-festive .bg-indigo-50\/20 {
+  background-color: rgba(254, 243, 199, 0.2) !important;
+}
+.theme-spring .bg-indigo-50\/30, .theme-summer .bg-indigo-50\/30, .theme-winter .bg-indigo-50\/30, .theme-festive .bg-indigo-50\/30 {
+  background-color: rgba(254, 243, 199, 0.3) !important;
+}
+.theme-spring .bg-indigo-50\/40, .theme-summer .bg-indigo-50\/40, .theme-winter .bg-indigo-50\/40, .theme-festive .bg-indigo-50\/40 {
+  background-color: rgba(254, 243, 199, 0.4) !important;
+}
+.theme-spring .bg-indigo-50\/50, .theme-summer .bg-indigo-50\/50, .theme-winter .bg-indigo-50\/50, .theme-festive .bg-indigo-50\/50 {
+  background-image: var(--color-bg-gradient) !important;
+  background-color: transparent !important;
+}
+.theme-spring .bg-indigo-50\/70, .theme-summer .bg-indigo-50\/70, .theme-winter .bg-indigo-50\/70, .theme-festive .bg-indigo-50\/70 {
+  background-image: var(--color-bg-gradient) !important;
+  background-color: transparent !important;
+}
+
+/* Hover Overrides */
+.theme-spring .hover\:bg-indigo-700:hover, .theme-summer .hover\:bg-indigo-700:hover, .theme-winter .hover\:bg-indigo-700:hover, .theme-festive .hover\:bg-indigo-700:hover {
+  background-color: var(--color-primary-hover) !important;
+}
+.theme-spring .hover\:bg-indigo-800:hover, .theme-summer .hover\:bg-indigo-800:hover, .theme-winter .hover\:bg-indigo-800:hover, .theme-festive .hover\:bg-indigo-800:hover {
+  background-color: var(--color-primary-hover) !important;
+}
+.theme-spring .hover\:bg-indigo-50:hover, .theme-summer .hover\:bg-indigo-50:hover, .theme-winter .hover\:bg-indigo-50:hover, .theme-festive .hover\:bg-indigo-50:hover {
+  background-color: var(--color-primary-light) !important;
+}
+
+/* Linear Gradients Overrides */
+.theme-spring .from-indigo-600, .theme-summer .from-indigo-600, .theme-winter .from-indigo-600, .theme-festive .from-indigo-600 {
+  --tw-gradient-from: var(--color-primary) !important;
+}
+.theme-spring .to-indigo-700, .theme-summer .to-indigo-700, .theme-winter .to-indigo-700, .theme-festive .to-indigo-700 {
+  --tw-gradient-to: var(--color-primary-hover) !important;
+}
+.theme-spring .hover\:from-indigo-700:hover, .theme-summer .hover\:from-indigo-700:hover, .theme-winter .hover\:from-indigo-700:hover, .theme-festive .hover\:from-indigo-700:hover {
+  background-color: var(--color-primary-hover) !important;
+}
+
+/* Text Overrides */
+.theme-spring .text-indigo-600, .theme-summer .text-indigo-600, .theme-winter .text-indigo-600, .theme-festive .text-indigo-600 {
+  color: var(--color-primary) !important;
+}
+.theme-spring .text-indigo-700, .theme-summer .text-indigo-700, .theme-winter .text-indigo-700, .theme-festive .text-indigo-700 {
+  color: var(--color-primary) !important;
+}
+.theme-spring .text-indigo-800, .theme-summer .text-indigo-800, .theme-winter .text-indigo-800, .theme-festive .text-indigo-800 {
+  color: var(--color-primary-hover) !important;
+}
+.theme-spring .text-indigo-900, .theme-summer .text-indigo-900, .theme-winter .text-indigo-900, .theme-festive .text-indigo-900 {
+  color: var(--color-primary-text-dark) !important;
+}
+.theme-spring .text-indigo-300, .theme-summer .text-indigo-300, .theme-winter .text-indigo-300, .theme-festive .text-indigo-300 {
+  color: var(--color-primary-border) !important;
+}
+.theme-spring .group-hover\:text-indigo-600:group-hover, .theme-summer .group-hover\:text-indigo-600:group-hover, .theme-winter .group-hover\:text-indigo-600:group-hover, .theme-festive .group-hover\:text-indigo-600:group-hover {
+  color: var(--color-primary) !important;
+}
+
+/* Border Class Overrides */
+.theme-spring .border-indigo-100, .theme-summer .border-indigo-100, .theme-winter .border-indigo-100, .theme-festive .border-indigo-100 {
+  border-color: var(--color-primary-border) !important;
+}
+.theme-spring .border-indigo-150, .theme-summer .border-indigo-150, .theme-winter .border-indigo-150, .theme-festive .border-indigo-150 {
+  border-color: var(--color-primary-border) !important;
+}
+.theme-spring .border-indigo-200, .theme-summer .border-indigo-200, .theme-winter .border-indigo-200, .theme-festive .border-indigo-200 {
+  border-color: var(--color-primary-border) !important;
+}
+.theme-spring .border-indigo-300, .theme-summer .border-indigo-300, .theme-winter .border-indigo-300, .theme-festive .border-indigo-300 {
+  border-color: var(--color-primary) !important;
+}
+.theme-spring .border-indigo-500, .theme-summer .border-indigo-500, .theme-winter .border-indigo-500, .theme-festive .border-indigo-500 {
+  border-color: var(--color-primary) !important;
+}
+.theme-spring .border-indigo-600, .theme-summer .border-indigo-600, .theme-winter .border-indigo-600, .theme-festive .border-indigo-600 {
+  border-color: var(--color-primary) !important;
+}
+
+/* Ring & Shadow Overrides */
+.theme-spring .ring-indigo-500\/10, .theme-summer .ring-indigo-500\/10, .theme-winter .ring-indigo-500\/10, .theme-festive .ring-indigo-500\/10 {
+  --tw-ring-color: rgba(217, 119, 6, 0.1) !important;
+}
+.theme-spring .shadow-indigo-150, .theme-summer .shadow-indigo-150, .theme-winter .shadow-indigo-150, .theme-festive .shadow-indigo-150 {
+  box-shadow: 0 4px 14px 0 rgba(217, 119, 6, 0.15) !important;
+}
+
+/* Custom Selection Overrides */
+.theme-spring *::selection { background-color: var(--color-primary-light) !important; color: var(--color-primary-text-dark) !important; }
+.theme-summer *::selection { background-color: var(--color-primary-light) !important; color: var(--color-primary-text-dark) !important; }
+.theme-winter *::selection { background-color: var(--color-primary-light) !important; color: var(--color-primary-text-dark) !important; }
+.theme-festive *::selection { background-color: var(--color-primary-light) !important; color: var(--color-primary-text-dark) !important; }
+
+/* -------------------------------------------------------------
+   REGIONAL & CULTURAL HERITAGE BACKGROUND OVERLAYS
+   ------------------------------------------------------------- */
+
+.bg-overlay-dunes {
+  background-image: 
+    radial-gradient(circle at 100% 150%, transparent 24%, rgba(217, 119, 6, 0.045) 24%, rgba(217, 119, 6, 0.045) 28%, transparent 28%, transparent), 
+    radial-gradient(circle at 0% 150%, transparent 24%, rgba(217, 119, 6, 0.045) 24%, rgba(217, 119, 6, 0.045) 28%, transparent 28%, transparent) !important;
+  background-size: 60px 60px !important;
+  position: relative;
+}
+
+.bg-overlay-mosaic {
+  background-image: 
+    linear-gradient(30deg, rgba(79, 70, 229, 0.025) 12%, transparent 12.5%, transparent 87%, rgba(79, 70, 229, 0.025) 87.5%, rgba(79, 70, 229, 0.025)),
+    linear-gradient(150deg, rgba(79, 70, 229, 0.025) 12%, transparent 12.5%, transparent 87%, rgba(79, 70, 229, 0.025) 87.5%, rgba(79, 70, 229, 0.025)),
+    linear-gradient(210deg, rgba(79, 70, 229, 0.025) 12%, transparent 12.5%, transparent 87%, rgba(79, 70, 229, 0.025) 87.5%, rgba(79, 70, 229, 0.025)),
+    linear-gradient(330deg, rgba(79, 70, 229, 0.025) 12%, transparent 12.5%, transparent 87%, rgba(79, 70, 229, 0.025) 87.5%, rgba(79, 70, 229, 0.025)) !important;
+  background-size: 30px 52px !important;
+  position: relative;
+}
+
+.bg-overlay-kabyle {
+  background-image: 
+    linear-gradient(135deg, rgba(16, 185, 129, 0.02) 25%, transparent 25%), 
+    linear-gradient(225deg, rgba(16, 185, 129, 0.02) 25%, transparent 25%), 
+    linear-gradient(45deg, rgba(220, 38, 38, 0.015) 25%, transparent 25%), 
+    linear-gradient(315deg, rgba(220, 38, 38, 0.015) 25%, transparent 25%) !important;
+  background-size: 40px 40px !important;
+  position: relative;
+}
+
+.bg-overlay-tassili {
+  background-color: #0b0f19 !important; /* Night sky base for Tassili prehistoric experience */
+  background-image: 
+    radial-gradient(rgba(245, 158, 11, 0.18) 1.5px, transparent 1.5px), 
+    radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px) !important;
+  background-size: 50px 50px, 90px 90px !important;
+  background-position: 0 0, 25px 25px !important;
+  color: #f1f5f9 !important; /* Invert text clarity in dark tassili */
+  position: relative;
+}
+
+/* Specific text visibility in immersive Tassili deep night */
+.theme-autumn.bg-overlay-tassili,
+.theme-spring.bg-overlay-tassili,
+.theme-summer.bg-overlay-tassili,
+.theme-winter.bg-overlay-tassili,
+.theme-festive.bg-overlay-tassili {
+  color: #f1f5f9 !important;
+}
+
+/* Ensure card backgrounds stay beautifully readable in dark Tassili night */
+.bg-overlay-tassili .bg-white {
+  background-color: rgba(23, 29, 45, 0.85) !important;
+  backdrop-filter: blur(12px) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: #f1f5f9 !important;
+}
+
+.bg-overlay-tassili .text-slate-800,
+.bg-overlay-tassili .text-slate-705,
+.bg-overlay-tassili .text-slate-900,
+.bg-overlay-tassili .text-slate-750,
+.bg-overlay-tassili .text-slate-950 {
+  color: #e2e8f0 !important;
+}
+
+.bg-overlay-tassili .text-slate-500,
+.bg-overlay-tassili .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+.bg-overlay-tassili .bg-slate-50,
+.bg-overlay-tassili .bg-slate-100/50,
+.bg-overlay-tassili .bg-slate-50/80 {
+  background-color: rgba(15, 22, 36, 0.95) !important;
+  border-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+.bg-overlay-tassili nav.bg-white\/85,
+.bg-overlay-tassili .bg-white\/85 {
+  background-color: rgba(11, 15, 25, 0.85) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.1) !important;
+}
+
