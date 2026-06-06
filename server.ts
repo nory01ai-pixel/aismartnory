@@ -4,28 +4,22 @@ import dotenv from "dotenv";
 import cors from "cors";
 import { GoogleGenAI } from "@google/genai";
 
-// 1. تحميل متغيرات البيئة
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 2. حقن إعدادات CORS الشاملة (لحل مشاكل الاتصال من Appsmith أو المتصفح نهائياً)
+// حقن إعدادات CORS الشاملة والأمان لـ Appsmith والمتصفح
 app.use(cors({
-  origin: "*", // يتيح لجميع النطاقات الاتصال بالسيرفر
+  origin: "*",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "Accept"],
   credentials: true
 }));
 
-// 3. معالجة البيانات القادمة بصيغة JSON
 app.use(express.json());
 
-// 4. تهيئة عميل الذكاء الاصطناعي (Gemini SDK)
 const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) {
-  console.error("⚠️ تحذير حرج: مفتاح GEMINI_API_KEY غير موجود في ملف البيئة!");
-}
 const ai = new GoogleGenAI({ apiKey });
 
 /**
@@ -35,58 +29,47 @@ app.post("/api/chat", async (req, res) => {
   try {
     const { messages, lang } = req.body;
     if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: "المصفوفة 'messages' مطلوبة." });
+      return res.status(400).json({ error: "Messages array is required." });
     }
 
-    // جلب آخر رسالة أرسلها المستخدم
     const lastUserMessage = messages[messages.length - 1]?.text || "";
-
-    // إرشادات النظام لضبط هوية الذكاء الاصطناعي
     const systemInstruction = lang === "ar"
-      ? "أنت المرشد السياحي والمساعد التفاعلي لوكالة 'فسحة DZ' في الجزائر. أجب بلباقة واحترافية وبمعلومات سياحية دقيقة ومختصرة."
-      : "You are the AI Travel Assistant for Fosha DZ agency in Algeria. Be professional and concise.";
+      ? "أنت المرشد السياحي والمساعد التفاعلي لوكالة 'فسحة DZ' في الجزائر. أجب بلباقة واحترافية وبإيجاز شديد دون إطالة."
+      : "You are the AI Travel Assistant for Fosha DZ. Be professional and concise.";
 
-    console.log(`[Chat API] معالجة طلب: "${lastUserMessage}"`);
-
-    // استدعاء النموذج
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: lastUserMessage,
-      config: {
-        systemInstruction: systemInstruction
-      }
+      config: { systemInstruction }
     });
 
-    return res.json({ text: response.text || "مرحباً بك! كيف يمكنني مساعدتك اليوم؟" });
-
+    return res.json({ text: response.text || "مرحباً بك! كيف يمكنني مساعدتك؟" });
   } catch (error: any) {
-    console.error("خطأ في مسار الدردشة:", error.message || error);
-    return res.status(500).json({ text: "عذراً، واجه الخادم مشكلة مؤقتة في معالجة طلبك." });
+    console.error("Chat Error:", error);
+    return res.status(500).json({ text: "عذراً، واجه الخادم مشكلة مؤقتة." });
   }
 });
 
-// مسار بديل للدردشة بدون /api لضمان التوافقية
 app.post("/chat", (req, res) => app._router.handle(req, res));
 
 
 /**
- * --- المسار الثاني: توليد البرامج السياحية (إصدار خفيف متوافق مع Appsmith) ---
+ * --- المسار الثاني: توليد البرامج السياحية الكاملة للهيكل (مضغوطة لمنع أخطاء الحجم) ---
  */
 app.post("/api/generate-itinerary", async (req, res) => {
   try {
-    const { destination, daysCount, budget, travelerType } = req.body;
+    const { destination, daysCount, budget, travelerType, tripPurpose, lodgingType } = req.body;
 
     const targetDest = destination || "غرداية";
-    // تحديد الأيام بحد أقصى 3 أيام لضمان بقاء حجم الرد أصغر من 1 ميجابايت وتفادي خطأ Appsmith الشهير
     const duration = daysCount ? Math.min(Number(daysCount), 3) : 3;
 
-    console.log(`[Itinerary API] توليد برنامج لـ ${targetDest} لمدة ${duration} أيام...`);
+    console.log(`[Itinerary] Generating full-compatibility structural plan for ${targetDest}...`);
 
-    const systemInstruction = "أنت خبير لوجستي لوكالة فسحة DZ. يجب أن تعيد رد JSON مضغوط ومباشر يطابق الهيكل المطلوب تماماً وبدون أي نصوص ترحيبية خارج الـ JSON.";
+    const systemInstruction = "أنت خبير سياحي لوكالة فسحة DZ. يجب إرجاع كائن JSON مضغوط ومكتمل الحقول تماماً لتلبية متطلبات واجهة التطبيق، دون أي نصوص خارجية مضافة.";
 
-    // صياغة برومبت صارم ومحدد البنية
-    const prompt = `قم بصياغة برنامج سياحي تفصيلي وموجز لزيارة ${targetDest} لمدة ${duration} أيام. الميزانية: ${budget || "اقتصادية"}. نمط الرحلة: ${travelerType || "عائلي"}.
-    المخرجات يجب أن تكون حصراً كائن JSON نظيف ومطابق تماماً للبنية التالية:
+    // برومبت صارم يجبر النموذج على ملء كل الحقول المتوقعة في الواجهة ولكن بنصوص قصيرة جداً
+    const prompt = `قم بصياغة برنامج سياحي تفصيلي وموجز للغاية لزيارة ${targetDest} لمدة ${duration} أيام. الميزانية: ${budget || "اقتصادية"}. نمط الرحلة: ${travelerType || "عائلي"}.
+    المخرجات يجب أن تكون حصراً كائن JSON يحتوي على كافة الحقول التالية بدقة (املأ المصفوفات بعنصر واحد أو اثنين فقط للاختصار وحماية الحجم):
     {
       "destinationName": "${targetDest}",
       "country": "الجزائر",
@@ -94,7 +77,8 @@ app.post("/api/generate-itinerary", async (req, res) => {
       "targetBudgetLevel": "${budget || "اقتصادية"}",
       "travelerType": "${travelerType || "عائلي"}",
       "languageCode": "ar",
-      "climateAdvisoryAlert": "الأجواء ملائمة جداً للأنشطة السياحية الميدانية واستكشاف المنطقة.",
+      "climateAdvisoryAlert": "الأجواء مشمسة ومناسبة تماماً للجولات والاستكشاف.",
+      "localEventsAndExpos": [],
       "days": [
         {
           "dayNumber": 1,
@@ -112,11 +96,36 @@ app.post("/api/generate-itinerary", async (req, res) => {
         }
       ],
       "suggestedHotels": [{"name": "نُزل ودار ضيافة الأصالة التراثي", "stars": 3, "pricePerNightUSD": 35, "ratingValue": 4.7, "reasonForRecommendation": "موقع هادئ وقريب من الخدمات.", "phoneNumber": "+213 550 11 22 33", "address": "وسط المدينة"}],
-      "customPackingList": [{"category": "الأمتعة الأساسية", "items": ["أحذية مريحة للمشي", "نظارات شمسية"]}],
-      "localTravelTips": ["يفضل حمل سيولة نقدية بالدينار الجزائري (دج)"],
+      "customPackingList": [{"category": "الأمتعة الأساسية", "items": ["أحذية مريحة", "نظارات شمسية"]}],
+      "localTravelTips": ["يفضل حمل سيولة نقدية بالدينار الجزائري"],
       "isDomesticTrip": true,
       "localCurrencySymbol": "دج",
-      "emergencyNumbers": [{"label": "الحماية المدنية", "phone": "14"}, {"label": "الشرطة", "phone": "17"}]
+      "emergencyNumbers": [{"label": "الحماية المدنية", "phone": "14"}, {"label": "الشرطة", "phone": "17"}],
+      "bookingRequirements": ["بطاقة التعريف الوطنية سارية المفعول"],
+      "localTraditionalCuisine": [{"name": "الكسكس التقليدي الأصيل", "description": "وجبة تراثية وطنية مطهية بالبخار مع الخضار الطازجة ولحم الغنم."}],
+      "popularMarketsAndSouks": [{"name": "سوق الحرف القديم", "type": "سوق تراثي", "description": "مكان مثالي لشراء الزرابي والمنسوجات اليدوية الفريدة."}],
+      "googleMapsSim": {
+        "accommodationName": "نُزل الأصالة",
+        "accommodationQuery": "فندق، ${targetDest}",
+        "primarySpotName": "المعالم التاريخية",
+        "primarySpotQuery": "معالم أثرية، ${targetDest}",
+        "distanceKMText": "2.0 كم",
+        "recommendedTaxiApp": "سيارات الأجرة المحلية",
+        "taxiFareEstimateLocal": "200 دج",
+        "transitAdviceStep": "يمكن الانطلاق مباشرة للوصول للوجهة في دقائق معدودة."
+      },
+      "tripPurpose": "${tripPurpose || "tourism"}",
+      "missionDestinationsText": "",
+      "lodgingType": "${lodgingType || "hotel"}",
+      "administrativeMissionDetails": {"missionOverview": "مسار مرن ومنظم لزيارة المواقع.", "destinationsList": []},
+      "nearbyPlacesAndUtilities": {
+        "restaurantsAndCafes": [{"name": "مطعم الخيرات الشعبي", "type": "مطعم مأكولات شعبية", "description": "يقدم وجبات تقليدية طازجة بنكهات محلية ساحرة يومياً.", "googleMapsQuery": "مطعم شعبي"}],
+        "mosquesAndRestrooms": [{"name": "المسجد الكبير الجامع", "prayerTimesTransitAdvice": "يضم مرافق وضوء ودورات مياه عامة نظيفة.", "hasPublicRestroom": true, "googleMapsQuery": "المسجد الكبير"}],
+        "medicalServices": [{"name": "صيدلية الهلال المركزية", "type": "صيدلية (24 ساعة)", "description": "توفر كافة المستلزمات الطبية والأدوية الطارئة على مدار اليوم.", "googleMapsQuery": "صيدلية", "phoneNumber": "+213 29 00 11 22"}],
+        "nearbyAlternativeLodgings": [],
+        "businessAndPrintingServices": []
+      },
+      "estimatedTransitSchedules": [{"transportMethod": "حافلات خطوط النقل البري الكبرى", "departureDayTime": "يومياً الساعة 07:00 صباحاً", "stationName": "محطة المسافرين البرية المركزية", "frequencyAndPrice": "رحلات منتظمة بسعر ثابت تقدر بـ 700 دج", "contactPhone": "+213 21 00 11 22"}]
     }`;
 
     const response = await ai.models.generateContent({
@@ -129,38 +138,28 @@ app.post("/api/generate-itinerary", async (req, res) => {
     });
 
     const jsonText = response.text;
-    if (!jsonText) throw new Error("لم يتم إرجاع نص من النموذج.");
+    if (!jsonText) throw new Error("Empty response text from model");
 
-    // إرسال كائن الـ JSON بعد تحويله بنجاح
     return res.json(JSON.parse(jsonText));
 
   } catch (error: any) {
-    console.error("خطأ في مسار توليد البرنامج:", error.message || error);
-    return res.status(500).json({ error: "فشل في توليد البرنامج السياحي بسبب مشكلة في الهيكلة." });
+    console.error("Itinerary Error:", error.message || error);
+    return res.status(500).json({ error: "Failed to generate compatible structured itinerary plan" });
   }
 });
 
-// مسار بديل لتوليد البرامج بدون /api لضمان التوافقية
 app.post("/generate-itinerary", (req, res) => app._router.handle(req, res));
 
-
-/**
- * --- المسارات العامة والإنتاجية ---
- */
 app.get("/", (req, res) => {
-  res.send("Fosha DZ AI Server is reset, clean, and fully operational!");
+  res.send("Fosha DZ Production Server is Live, Lean, and Fully Compatible!");
 });
 
-// التعامل مع المخرجات الجاهزة في بيئة الإنتاج (Production)
 if (process.env.NODE_ENV === "production") {
   const distPath = path.join(process.cwd(), "dist");
   app.use(express.static(distPath));
-  app.get("*", (req, res) => {
-    res.sendFile(path.join(distPath, "index.html"));
-  });
+  app.get("*", (req, res) => { res.sendFile(path.join(distPath, "index.html")); });
 }
 
-// بدء تشغيل الاستماع للطلبات
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Clean server is happily running on port ${PORT}`);
+  console.log(`🚀 Production server fully compatible and running on port ${PORT}`);
 });
