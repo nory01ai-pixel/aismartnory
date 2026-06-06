@@ -1307,7 +1307,7 @@ export default function TravelPlanner({
     setSmartLoading(true);
     setSmartError("");
     try {
-      const response = await fetch("/api/smart-location-help", {
+      const response = await fetch("https://nory-fos7a-ai-smart-backend.onrender.com/api/smart-location-help", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: smartQuery, lang }),
@@ -1341,7 +1341,7 @@ export default function TravelPlanner({
     setSmartFos7aError("");
     setSmartFos7aSuccessText("");
     try {
-      const response = await fetch("/api/smart-fos7a-help", {
+      const response = await fetch("https://nory-fos7a-ai-smart-backend.onrender.com/api/smart-fos7a-help", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: smartFos7aQuery, lang }),
@@ -1418,7 +1418,7 @@ export default function TravelPlanner({
       if (lang === "ar" || activeItinerary.languageCode === "ar") {
         // Translate to English on-the-fly to get both versions
         try {
-          const res = await fetch("/api/translate-itinerary", {
+          const res = await fetch("https://nory-fos7a-ai-smart-backend.onrender.com/api/translate-itinerary", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ itinerary: activeItinerary, targetLang: "en" }),
@@ -1436,7 +1436,7 @@ export default function TravelPlanner({
       else {
         // Translate to Arabic on-the-fly to get both versions
         try {
-          const res = await fetch("/api/translate-itinerary", {
+          const res = await fetch("https://nory-fos7a-ai-smart-backend.onrender.com/api/translate-itinerary", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ itinerary: activeItinerary, targetLang: "ar" }),
@@ -1483,7 +1483,7 @@ export default function TravelPlanner({
     }, 2800);
 
     try {
-      const response = await fetch("/api/generate-itinerary", {
+      const response = await fetch("https://nory-fos7a-ai-smart-backend.onrender.com/api/generate-itinerary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

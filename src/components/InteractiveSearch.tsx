@@ -81,7 +81,7 @@ export default function InteractiveSearch({
     setSmartLoading(true);
     setSmartError("");
     try {
-      const response = await fetch("/api/smart-search-help", {
+      const response = await fetch("https://nory-fos7a-ai-smart-backend.onrender.com/api/smart-search-help", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: activeQuery, lang })
