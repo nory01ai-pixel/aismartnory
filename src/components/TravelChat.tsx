@@ -62,18 +62,22 @@ export default function TravelChat({ lang, activeItinerary }: TravelChatProps) {
     setLoading(true);
 
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: updatedMessages.map(m => ({
-            role: m.role,
-            text: m.text
-          })),
-          currentTripContext: activeItinerary,
-          lang
-        }),
-      });
+    const response = await fetch("https://nory-fos7a-ai-smart-backend.onrender.com/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      mode: "cors", // تفعيل وضع عبور الحماية السحابية
+      body: JSON.stringify({
+        messages: updatedMessages.map(m => ({
+          role: m.role,
+          text: m.text
+        })),
+        currentTripContext: activeItinerary,
+        lang
+      }),
+    });
 
       if (!response.ok) {
         throw new Error("Chat connection failed");
