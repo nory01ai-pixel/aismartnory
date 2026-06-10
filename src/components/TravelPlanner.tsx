@@ -51,6 +51,8 @@ import { createPortal } from "react-dom";
 import WeatherForecastCard from "./WeatherForecastCard";
 import PrayerTimesCard from "./PrayerTimesCard";
 import BudgetTracker from "./BudgetTracker";
+import ScenicSlideshow from "./ScenicSlideshow";
+import LandmarkTriviaModal from "./LandmarkTriviaModal";
 import {
   ResponsiveContainer,
   PieChart,
@@ -609,6 +611,79 @@ export default function TravelPlanner({
 
   const [packingWeather, setPackingWeather] = useState<WeatherConditions | null>(null);
   const [packingWeatherLoading, setPackingWeatherLoading] = useState<boolean>(false);
+  const [packingAiLoading, setPackingAiLoading] = useState<boolean>(false);
+
+  const handleTriggerAiAdditions = async () => {
+    if (!activeItinerary || packingAiLoading) return;
+    setPackingAiLoading(true);
+
+    try {
+      // Gather all current packing items to avoid suggestion duplication
+      const currentList = (enrichedItinerary?.customPackingList || []).flatMap(cat => cat.items);
+
+      const res = await fetch("/api/get-packing-suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          destination: activeItinerary.destinationName,
+          duration: activeItinerary.tripDurationDays,
+          lang,
+          currentPacking: currentList
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to fetch packing suggestions");
+      }
+
+      const data = await res.json();
+      if (data.additions && Array.isArray(data.additions)) {
+        // We can group additions by category and merge them into activeItinerary.customPackingList!
+        const updatedPackingList = [...(activeItinerary.customPackingList || [])];
+
+        data.additions.forEach((addition: { category: string; item: string }) => {
+          // Find matching category or create a new one
+          const categoryName = addition.category;
+          const itemName = addition.item;
+
+          const existingCatIdx = updatedPackingList.findIndex(c => 
+            c.category.toLowerCase().trim() === categoryName.toLowerCase().trim()
+          );
+
+          if (existingCatIdx >= 0) {
+            // Avoid adding duplicate item name strings inside same category
+            if (!updatedPackingList[existingCatIdx].items.some(it => it.toLowerCase().includes(itemName.toLowerCase()))) {
+              updatedPackingList[existingCatIdx] = {
+                ...updatedPackingList[existingCatIdx],
+                items: [...updatedPackingList[existingCatIdx].items, itemName]
+              };
+            }
+          } else {
+            updatedPackingList.push({
+              category: categoryName,
+              items: [itemName]
+            });
+          }
+        });
+
+        // Save back
+        const updatedItinerary = {
+          ...activeItinerary,
+          customPackingList: updatedPackingList
+        };
+
+        if (onUpdateItinerary) {
+          onUpdateItinerary(updatedItinerary);
+        } else {
+          onItineraryGenerated(updatedItinerary);
+        }
+      }
+    } catch (err) {
+      console.error("Error generating packing additions:", err);
+    } finally {
+      setPackingAiLoading(false);
+    }
+  };
 
   // Add custom activity form state
   const [showAddActivityForm, setShowAddActivityForm] = useState(false);
@@ -943,6 +1018,7 @@ export default function TravelPlanner({
   const [copySuccess, setCopySuccess] = useState(false);
   const [completedDays, setCompletedDays] = useState<number[]>([]);
   const [customBudgetTarget, setCustomBudgetTarget] = useState<string>("");
+  const [itineraryViewMode, setItineraryViewMode] = useState<"timeline" | "slideshow">("timeline");
 
   // Drag and drop states for activities reordering
   const [draggedActivityIndex, setDraggedActivityIndex] = useState<number | null>(null);
@@ -1090,22 +1166,22 @@ export default function TravelPlanner({
     if (isDomestic) {
       // Base values inside the itinerary database are in local currency (DZD)
       if (activeCurrencyMode === "LOCAL") {
-        return `${Math.round(priceUSDorLocal).toLocaleString()} ${localSym}`;
+        return `${Math.round(priceUSDorLocal).toLocaleString("en-US")} ${localSym}`;
       } else {
         // Convert DZD to USD
         const rate = customExchangeRate || 140;
         const converted = priceUSDorLocal / rate;
-        return `$${converted.toFixed(1)}`;
+        return `$${converted.toLocaleString("en-US")}`;
       }
     } else {
       // Base values inside the itinerary database are in USD
       if (activeCurrencyMode === "USD") {
-        return `$${Math.round(priceUSDorLocal).toLocaleString()}`;
+        return `$${Math.round(priceUSDorLocal).toLocaleString("en-US")}`;
       } else {
         // Convert USD to local currency
         const rate = customExchangeRate || 1.0;
         const converted = priceUSDorLocal * rate;
-        return `${Math.round(converted).toLocaleString()} ${localSym}`;
+        return `${Math.round(converted).toLocaleString("en-US")} ${localSym}`;
       }
     }
   };
@@ -1179,6 +1255,49 @@ export default function TravelPlanner({
   ];
   const [destination, setDestination] = useState("");
   const [daysCount, setDaysCount] = useState(4);
+
+  // Manual trip metadata configuration fields
+  const [manualOrigin, setManualOrigin] = useState("");
+  const [manualNextDestination, setManualNextDestination] = useState("");
+
+  // Persistent customizable section visibilities to allow simplifying the dashboard layout
+  const [visibleWidgets, setVisibleWidgets] = useState<{
+    currencyConverter: boolean;
+    weatherForecast: boolean;
+    budgetTracker: boolean;
+    prayerTimes: boolean;
+    clock: boolean;
+    compass: boolean;
+  }>(() => {
+    try {
+      const saved = localStorage.getItem("fos7a_visible_widgets");
+      return saved ? JSON.parse(saved) : {
+        currencyConverter: true,
+        weatherForecast: true,
+        budgetTracker: true,
+        prayerTimes: true,
+        clock: true,
+        compass: true,
+      };
+    } catch {
+      return {
+        currencyConverter: true,
+        weatherForecast: true,
+        budgetTracker: true,
+        prayerTimes: true,
+        clock: true,
+        compass: true,
+      };
+    }
+  });
+
+  const handleToggleWidget = (widgetKey: "currencyConverter" | "weatherForecast" | "budgetTracker" | "prayerTimes" | "clock" | "compass") => {
+    setVisibleWidgets((prev) => {
+      const next = { ...prev, [widgetKey]: !prev[widgetKey] };
+      localStorage.setItem("fos7a_visible_widgets", JSON.stringify(next));
+      return next;
+    });
+  };
   const [budget, setBudget] = useState("Moderate");
   const [travelerType, setTravelerType] = useState("Couple");
   const [selectedInterests, setSelectedInterests] = useState<string[]>(["Culture", "Food"]);
@@ -1257,6 +1376,8 @@ export default function TravelPlanner({
   const [errorMsg, setErrorMsg] = useState("");
   const [checkboxState, setCheckboxState] = useState<Record<string, boolean>>({});
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [selectedLandmarkForTrivia, setSelectedLandmarkForTrivia] = useState("");
+  const [isTriviaModalOpen, setIsTriviaModalOpen] = useState(false);
 
   const budgetOptions = [
     { value: "Economy", label: t.budgetEco, color: "border-green-300 text-green-700 bg-green-50/50" },
@@ -1307,7 +1428,7 @@ export default function TravelPlanner({
     setSmartLoading(true);
     setSmartError("");
     try {
-      const response = await fetch("https://nory-fos7a-ai-smart-backend.onrender.com/api/smart-location-help", {
+      const response = await fetch("/api/smart-location-help", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: smartQuery, lang }),
@@ -1341,7 +1462,7 @@ export default function TravelPlanner({
     setSmartFos7aError("");
     setSmartFos7aSuccessText("");
     try {
-      const response = await fetch("https://nory-fos7a-ai-smart-backend.onrender.com/api/smart-fos7a-help", {
+      const response = await fetch("/api/smart-fos7a-help", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: smartFos7aQuery, lang }),
@@ -1418,7 +1539,7 @@ export default function TravelPlanner({
       if (lang === "ar" || activeItinerary.languageCode === "ar") {
         // Translate to English on-the-fly to get both versions
         try {
-          const res = await fetch("https://nory-fos7a-ai-smart-backend.onrender.com/api/translate-itinerary", {
+          const res = await fetch("/api/translate-itinerary", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ itinerary: activeItinerary, targetLang: "en" }),
@@ -1436,7 +1557,7 @@ export default function TravelPlanner({
       else {
         // Translate to Arabic on-the-fly to get both versions
         try {
-          const res = await fetch("https://nory-fos7a-ai-smart-backend.onrender.com/api/translate-itinerary", {
+          const res = await fetch("/api/translate-itinerary", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ itinerary: activeItinerary, targetLang: "ar" }),
@@ -1483,7 +1604,7 @@ export default function TravelPlanner({
     }, 2800);
 
     try {
-      const response = await fetch("https://nory-fos7a-ai-smart-backend.onrender.com/api/generate-itinerary", {
+      const response = await fetch("/api/generate-itinerary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1693,6 +1814,133 @@ export default function TravelPlanner({
 
     return { total, checked, percentage };
   }, [enrichedItinerary, checkboxState, customPackingItems]);
+
+  const weatherWarnings = useMemo(() => {
+    if (!activeItinerary || !packingWeather) return [];
+    const list: {
+      id: string;
+      type: "rain" | "cold" | "heat" | "wind";
+      titleEn: string;
+      titleAr: string;
+      descEn: string;
+      descAr: string;
+      recommendEn: string;
+      recommendAr: string;
+      queryItem: string;
+      itemEn: string;
+      itemAr: string;
+      isMissing: boolean;
+      isUnpacked: boolean;
+    }[] = [];
+
+    const allDefaultItems = (enrichedItinerary?.customPackingList || []).flatMap(cat => cat.items);
+    const allCustomItems = customPackingItems;
+    
+    const hasItemMatch = (terms: string[]) => {
+      return allDefaultItems.some(i => terms.some(t => i.toLowerCase().includes(t.toLowerCase()))) ||
+             allCustomItems.some(i => terms.some(t => i.text.toLowerCase().includes(t.toLowerCase())));
+    };
+
+    const isItemChecked = (terms: string[]) => {
+      const defaultMatchedChecked = (enrichedItinerary?.customPackingList || []).some(cat => 
+        cat.items.some(i => terms.some(t => i.toLowerCase().includes(t.toLowerCase())) && !!checkboxState[`${cat.category}-${i}`])
+      );
+      const customMatchedChecked = allCustomItems.some(i => 
+        terms.some(t => i.text.toLowerCase().includes(t.toLowerCase())) && i.checked
+      );
+      return defaultMatchedChecked || customMatchedChecked;
+    };
+
+    // 1. Rain Alert
+    if (packingWeather.hasRain) {
+      const rainTerms = ["umbrella", "raincoat", "waterproof", "مظلة", "معطف مطر", "معطف المطر", "مضاد للبلل"];
+      const exists = hasItemMatch(rainTerms);
+      const checked = exists ? isItemChecked(rainTerms) : false;
+      list.push({
+        id: "rain_alert",
+        type: "rain",
+        titleEn: "Rain Predicted 🌧️",
+        titleAr: "هطول أمطار متوقع 🌧️",
+        descEn: "Heavy precipitation is expected during your stay.",
+        descAr: "تشير التوقعات لهطول زخات من الأمطار بغزارة أثناء رحلتك.",
+        recommendEn: "Rain umbrella or waterproof raincoat is recommended.",
+        recommendAr: "يُنصح بشدة بإضافة مظلة مطر أو معطف واقٍ لمقاومة البلل.",
+        queryItem: "travel umbrella",
+        itemEn: "Compact travel umbrella & raincoat",
+        itemAr: "مظلة سفر مدمجة ومعطف مطر",
+        isMissing: !exists,
+        isUnpacked: exists && !checked
+      });
+    }
+
+    // 2. Cold Alert
+    if (packingWeather.hasCold) {
+      const coldTerms = ["heavy coat", "jacket", "thermal", "beanie", "gloves", "معطف", "سترة شتوية", "حرارية", "قبعة صوفية", "قفازات"];
+      const exists = hasItemMatch(coldTerms);
+      const checked = exists ? isItemChecked(coldTerms) : false;
+      list.push({
+        id: "cold_alert",
+        type: "cold",
+        titleEn: "Freezing Temperatures Expected ❄️",
+        titleAr: "درجات حرارة منخفضة وصقيع ❄️",
+        descEn: `Temperatures may drop to ${packingWeather.minTemp}°C.`,
+        descAr: `ستنخفض الصغرى ببلد الزيارة لتلامس ${packingWeather.minTemp} درجة مئوية.`,
+        recommendEn: "Heavy coat, insulated gloves and thermal baselayers are necessary.",
+        recommendAr: "من الضروري اصطحاب معطف شتوي عازل، وملابس داخلية حرارية قوية للوقاية.",
+        queryItem: "heavy insulated winter coat",
+        itemEn: "Heavy insulated winter coat & thermals",
+        itemAr: "سترة شتوية ثقيلة عازلة وملابس حرارية",
+        isMissing: !exists,
+        isUnpacked: exists && !checked
+      });
+    }
+
+    // 3. Heat Alert
+    if (packingWeather.hasHeat) {
+      const heatTerms = ["sunscreen", "sunglasses", "hat", "واقي", "نظارة شمسية", "قبعة عريضة", "غطاء رأس"];
+      const exists = hasItemMatch(heatTerms);
+      const checked = exists ? isItemChecked(heatTerms) : false;
+      list.push({
+        id: "heat_alert",
+        type: "heat",
+        titleEn: "Substantial Heatwave Alert ☀️",
+        titleAr: "موجة حر مشمسة شديدة ☀️",
+        descEn: `Temperatures will exceed ${packingWeather.maxTemp}°C with high UV index.`,
+        descAr: `ستتجاوز العظمى عتبة ${packingWeather.maxTemp} درجة مئوية نهاراً مع مؤشر أشعة فوق بنفسجية نشط.`,
+        recommendEn: "High SPF sunscreen, UV sunglasses, and wider hats are crucial.",
+        recommendAr: "يلزمك دهان واقي الشمس بعامل حماية مرتفع ونظارات شمسية مرشحة لحماية الأعين.",
+        queryItem: "high SPF sunscreen & sunglasses",
+        itemEn: "High SPF sunscreen & UV polarized sunglasses",
+        itemAr: "واقي من الشمس ونظارة شمسية مستقطبة",
+        isMissing: !exists,
+        isUnpacked: exists && !checked
+      });
+    }
+
+    // 4. Wind Alert
+    if (packingWeather.hasWind) {
+      const windTerms = ["windbreaker", "scarf", "goggles", "شال", "وشاح", "سترة واقية", "مقاوم للرياح"];
+      const exists = hasItemMatch(windTerms);
+      const checked = exists ? isItemChecked(windTerms) : false;
+      list.push({
+        id: "wind_alert",
+        type: "wind",
+        titleEn: "High Windy conditions 💨",
+        titleAr: "نشاط للرياح القوية والعواصف 💨",
+        descEn: "Gusts may create dusty sand clouds or cold drafts.",
+        descAr: "قد تسبب هبات الرياح النشطة عوالق ترابية أو صحراوية في الفضاء المفتوح.",
+        recommendEn: "Windbreaker jacket and protective scarf/neck gaiter recommended.",
+        recommendAr: "يُنصح بوضع سترة واقية خفيفة من الرياح ووشاح أو غطاء حماية مريح.",
+        queryItem: "protective windbreaker",
+        itemEn: "Protective windbreaker jacket & travel scarf",
+        itemAr: "سترة خفيفة مقاومة للرياح وشال حماية",
+        isMissing: !exists,
+        isUnpacked: exists && !checked
+      });
+    }
+
+    return list;
+  }, [activeItinerary, packingWeather, enrichedItinerary, checkboxState, customPackingItems]);
 
   const handleCheckAllPackingItems = () => {
     if (!activeItinerary || !enrichedItinerary) return;
@@ -2465,18 +2713,36 @@ ${originStr}
                 </div>
               </div>
             ) : (
-              <div className="md:col-span-8 space-y-2" id="destination-international-wrapper">
-                <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
-                  <MapPin className="w-4 h-4 text-indigo-500" />
-                  {t.destPlaceholder}
-                </label>
-                <input
-                  type="text"
-                  value={destination}
-                  onChange={(e) => setDestination(e.target.value)}
-                  placeholder={t.destPlaceholder}
-                  className="w-full h-12 px-4 rounded-xl border border-slate-200 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-100 text-slate-800 transition-colors"
-                />
+              <div className="md:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-4" id="destination-international-wrapper">
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-emerald-600" />
+                    {lang === "ar" ? "منطقة ونقطة الانطلاق (البداية)" : "Departure / Starting Area Point"}
+                  </label>
+                  <input
+                    type="text"
+                    value={manualOrigin}
+                    onChange={(e) => setManualOrigin(e.target.value)}
+                    placeholder={lang === "ar" ? "مثال: قسنطينة، الجزائر" : "e.g. Constantine, Algeria"}
+                    className="w-full h-12 px-4 rounded-xl border border-slate-200 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-100 text-slate-800 transition-colors text-xs md:text-sm font-semibold"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                    <Compass className="w-4 h-4 text-rose-500" />
+                    {lang === "ar" ? "أين وجهتك القادمة (الهدف التالي)؟" : "Where is your next destination?"}
+                  </label>
+                  <input
+                    type="text"
+                    value={destination}
+                    onChange={(e) => {
+                      setDestination(e.target.value);
+                      setManualNextDestination(e.target.value);
+                    }}
+                    placeholder={t.destPlaceholder}
+                    className="w-full h-12 px-4 rounded-xl border border-slate-200 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-100 text-slate-800 transition-colors text-xs md:text-sm font-semibold"
+                  />
+                </div>
               </div>
             )
           ) : (
@@ -2533,18 +2799,41 @@ ${originStr}
           )}
 
           <div className="md:col-span-4 space-y-2">
-            <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
-              <Calendar className="w-4 h-4 text-indigo-500" />
-              {t.durationDays}
+            <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5 justify-between">
+              <span className="flex items-center gap-1.5">
+                <Calendar className="w-4 h-4 text-indigo-500" />
+                {t.durationDays}
+              </span>
+              <span className="text-xs bg-indigo-50 text-indigo-700 font-extrabold px-2 py-0.5 rounded-full font-mono">
+                {daysCount} {lang === "ar" ? "أيام" : "Days"}
+              </span>
             </label>
-            <input
-              type="number"
-              min="1"
-              max="14"
-              value={daysCount}
-              onChange={(e) => setDaysCount(Math.min(14, Math.max(1, parseInt(e.target.value) || 1)))}
-              className="w-full h-12 px-4 rounded-xl border border-slate-200 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-100 text-slate-800 transition-colors"
-            />
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setDaysCount(prev => Math.max(1, prev - 1))}
+                className="w-12 h-12 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-lg font-black flex items-center justify-center text-slate-700 transition-colors select-none active:scale-95 cursor-pointer"
+              >
+                -
+              </button>
+              <div className="flex-1 relative flex items-center px-1">
+                <input
+                  type="range"
+                  min="1"
+                  max="14"
+                  value={daysCount}
+                  onChange={(e) => setDaysCount(parseInt(e.target.value) || 1)}
+                  className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-600 focus:outline-none"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setDaysCount(prev => Math.min(14, prev + 1))}
+                className="w-12 h-12 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-lg font-black flex items-center justify-center text-slate-700 transition-colors select-none active:scale-95 cursor-pointer"
+              >
+                +
+              </button>
+            </div>
           </div>
 
           <div className="md:col-span-4 space-y-2">
@@ -2986,187 +3275,264 @@ ${originStr}
             </div>
           </div>
 
+          {/* Dashboard Visibility Manager & Widgets Customization */}
+          <div className="bg-white border border-slate-150 rounded-2xl p-5 shadow-sm space-y-4" id="dashboard-layout-customizer-card">
+            <div className="flex items-center gap-2 mb-1 pb-2 border-b border-slate-100">
+              <span className="text-xl">⚙️</span>
+              <div>
+                <h3 className="font-extrabold text-slate-900 tracking-tight text-sm">
+                  {lang === "ar" ? "تخصيص وتبسيط واجهة لوحة التحكم" : "Customize & Simplify Dashboard Layout"}
+                </h3>
+                <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
+                  {lang === "ar" 
+                    ? "اختر الأجزاء والوظائف التي ترغب في إظهارها أو إخفائها لتسهيل وتبسيط واجهة النتيجة" 
+                    : "Toggle the sections you want to display or hide to simplify and streamline the final workspace layout"}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => handleToggleWidget("currencyConverter")}
+                className={`py-2 px-3 rounded-lg border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  visibleWidgets.currencyConverter 
+                    ? "bg-indigo-50 border-indigo-200 text-indigo-700 font-bold" 
+                    : "bg-slate-50 border-slate-150 text-slate-400 hover:text-slate-600 line-through"
+                }`}
+              >
+                <span>🪙</span>
+                <span className="truncate">{lang === "ar" ? "محول العملات" : "Currency Converter"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleToggleWidget("weatherForecast")}
+                className={`py-2 px-3 rounded-lg border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  visibleWidgets.weatherForecast 
+                    ? "bg-sky-50 border-sky-200 text-sky-700 font-bold" 
+                    : "bg-slate-50 border-slate-150 text-slate-400 hover:text-slate-600 line-through"
+                }`}
+              >
+                <span>🌦️</span>
+                <span className="truncate">{lang === "ar" ? "أرصاد الطقس" : "Weather Forecast"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleToggleWidget("prayerTimes")}
+                className={`py-2 px-3 rounded-lg border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  visibleWidgets.prayerTimes 
+                    ? "bg-amber-50 border-amber-200 text-amber-700 font-bold" 
+                    : "bg-slate-50 border-slate-150 text-slate-400 hover:text-slate-600 line-through"
+                }`}
+              >
+                <span>🕌</span>
+                <span className="truncate">{lang === "ar" ? "مواقيت الصلاة" : "Prayer Times"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleToggleWidget("budgetTracker")}
+                className={`py-2 px-3 rounded-lg border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  visibleWidgets.budgetTracker 
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-700 font-bold" 
+                    : "bg-slate-50 border-slate-150 text-slate-400 hover:text-slate-600 line-through"
+                }`}
+              >
+                <span>📊</span>
+                <span className="truncate">{lang === "ar" ? "الميزانية والمخطط" : "Budget & Chart"}</span>
+              </button>
+            </div>
+          </div>
+
           {/* Real-time Currency Conversion Tool */}
-          <div className="bg-white border border-slate-150 rounded-2xl p-5 shadow-sm space-y-4">
-            <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 pb-3 border-b border-indigo-50/50">
-              <div className="flex items-start gap-2.5">
-                <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 mt-0.5">
-                  <DollarSign className="w-5 h-5 animate-pulse" />
+          {visibleWidgets.currencyConverter && (
+            <div className="bg-white border border-slate-150 rounded-2xl p-5 shadow-sm space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 pb-3 border-b border-indigo-50/50">
+                <div className="flex items-start gap-2.5">
+                  <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 mt-0.5">
+                    <DollarSign className="w-5 h-5 animate-pulse" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-slate-950 tracking-tight text-base">
+                      {lang === "ar" ? "أداة تحويل العملات وحساب الأسعار الفورية" : "Real-time Currency Converter & Pricing Tool"}
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5 font-medium leading-relaxed font-sans">
+                      {lang === "ar" 
+                        ? "قارن التكاليف وحوّل الأسعار فورياً بين العملة المحلية والدولار بسعر البنك الرسمي أو موازين السوق السوداء." 
+                        : "Compare trip expenses and instantly switch between USD and local currency using Bank or Black Market rates."}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-extrabold text-slate-950 tracking-tight text-base">
-                    {lang === "ar" ? "أداة تحويل العملات وحساب الأسعار الفورية" : "Real-time Currency Converter & Pricing Tool"}
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5 font-medium leading-relaxed font-sans">
-                    {lang === "ar" 
-                      ? "قارن التكاليف وحوّل الأسعار فورياً بين العملة المحلية والدولار بسعر البنك الرسمي أو موازين السوق السوداء." 
-                      : "Compare trip expenses and instantly switch between USD and local currency using Bank or Black Market rates."}
+
+                {/* Currencies & Exchange Markets Selectors */}
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Rate Type Selector (Bank vs. Black Market) */}
+                  <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRateType("bank");
+                      }}
+                      className={`px-3 py-1.5 font-bold text-[11px] rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                        rateType === "bank"
+                          ? "bg-indigo-600 text-white shadow-sm"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      🏦 {lang === "ar" ? "سعر البنك" : "Bank Rate"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRateType("black");
+                      }}
+                      className={`px-3 py-1.5 font-bold text-[11px] rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                        rateType === "black"
+                          ? "bg-amber-600 text-white shadow-sm"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      ⚖️ {lang === "ar" ? "السوق السوداء" : "Black Market"}
+                    </button>
+                  </div>
+
+                  {/* Main currency toggle */}
+                  <span className="text-slate-300 hidden sm:block">|</span>
+
+                  <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setTargetCurrency("LOCAL")}
+                      className={`px-3.5 py-1.5 font-black text-[11px] rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                        activeCurrencyMode === "LOCAL"
+                          ? "bg-white text-indigo-950 shadow-xs text-indigo-600"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      🌐 {activeItinerary.localCurrencySymbol || (lang === "ar" ? "دج" : "DZD")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTargetCurrency("USD")}
+                      className={`px-3.5 py-1.5 font-black text-[11px] rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                        activeCurrencyMode === "USD"
+                          ? "bg-white text-indigo-950 shadow-xs text-indigo-600"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      🇺🇸 USD ($)
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Informational Comparison Bar */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-2 font-sans text-xs">
+                <div 
+                  onClick={() => setRateType("bank")}
+                  className={`p-3 rounded-xl border flex flex-col justify-between gap-1 transition-all cursor-pointer hover:border-indigo-300 ${rateType === "bank" ? "bg-indigo-50/40 border-indigo-200 ring-2 ring-indigo-500/10" : "bg-slate-50/60 border-slate-150"}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                      🏦 {lang === "ar" ? "سعر الصرف البنكي الرسمي" : "Official Bank Exchange Rate"}
+                    </span>
+                    {rateType === "bank" && <span className="px-1.5 py-0.5 rounded text-[9px] bg-indigo-100 text-indigo-700 font-extrabold uppercase">{lang === "ar" ? "نشط" : "Active"}</span>}
+                  </div>
+                  <div className="text-sm font-black text-slate-900 mt-1">
+                    1 USD = {getDefaultExchangeRate(activeItinerary.country || "", !!activeItinerary.isDomesticTrip, "bank")} {activeItinerary.localCurrencySymbol || (lang === "ar" ? "دج" : "DZD")}
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
+                    {lang === "ar" ? "السعر المعتمد لدى البنوك والتحويلات الرسمية الحكومية." : "Standard rate for sovereign bank conversions and official channels."}
+                  </p>
+                </div>
+
+                <div 
+                  onClick={() => setRateType("black")}
+                  className={`p-3 rounded-xl border flex flex-col justify-between gap-1 transition-all cursor-pointer hover:border-amber-300 ${rateType === "black" ? "bg-amber-50/45 border-amber-200 ring-2 ring-amber-500/10" : "bg-slate-50/60 border-slate-150"}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                      ⚖️ {lang === "ar" ? "سعر السوق الموازية والسكوار" : "Parallel Black Market Rate"}
+                    </span>
+                    {rateType === "black" && <span className="px-1.5 py-0.5 rounded text-[9px] bg-amber-100 text-amber-800 font-extrabold uppercase">{lang === "ar" ? "نشط" : "Active"}</span>}
+                  </div>
+                  <div className="text-sm font-black text-amber-700 mt-1">
+                    1 USD = {getDefaultExchangeRate(activeItinerary.country || "", !!activeItinerary.isDomesticTrip, "black")} {activeItinerary.localCurrencySymbol || (lang === "ar" ? "دج" : "DZD")}
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
+                    {lang === "ar" ? "السعر السائد في السوق الموازية غير الرسمية (مفيد لمطابقة ميزانية السفر الفعلية للكاش)." : "Actual parallel market cash rate (essential for liquid pocket travelers matching real-life costs in DZD)."}
                   </p>
                 </div>
               </div>
 
-              {/* Currencies & Exchange Markets Selectors */}
-              <div className="flex flex-wrap items-center gap-3">
-                {/* Rate Type Selector (Bank vs. Black Market) */}
-                <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200">
+              {/* Exchange Rate Adjustment Box */}
+              <div className="bg-slate-50/90 rounded-xl p-4 border border-slate-200/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <span className="text-xs font-bold text-slate-800 block">
+                    {lang === "ar" ? "⚙️ سعر الصرف المعتمد حالياً للتحويل:" : "⚙️ Configured Exchange Rate (Base Rate):"}
+                  </span>
+                  <p className="text-xs text-slate-600 font-semibold leading-relaxed">
+                    {lang === "ar" 
+                      ? `مبني على سعر: 1 دولار أمريكي (USD) = ${customExchangeRate || 140} ${activeItinerary.localCurrencySymbol || "دج"} (${rateType === "bank" ? "سعر البنك" : "السوق السوداء"})`
+                      : `Based on: 1 USD = ${customExchangeRate || 1.0} ${activeItinerary.localCurrencySymbol || "DZD"} (${rateType === "bank" ? "Bank Rate" : "Black Market"})`}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2.5">
+                  <label className="text-xs font-extrabold text-slate-700 whitespace-nowrap">
+                    {lang === "ar" ? "تعديل سعر الصرف يدوياً:" : "Override Rate:"}
+                  </label>
+                  <div className="relative rounded-lg">
+                    <input
+                      type="number"
+                      step="any"
+                      min="0.001"
+                      value={customExchangeRate || ""}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        if (!isNaN(val) && val > 0) setCustomExchangeRate(val);
+                      }}
+                      className="w-28 py-1.5 px-3 rounded-lg border border-slate-250 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-250 text-center"
+                    />
+                  </div>
+                  
+                  {/* Reset button to standard default */}
                   <button
                     type="button"
                     onClick={() => {
-                      setRateType("bank");
+                      const isDomestic = !!activeItinerary.isDomesticTrip;
+                      const country = activeItinerary.country || "";
+                      const defaultRate = getDefaultExchangeRate(country, isDomestic, rateType);
+                      setCustomExchangeRate(defaultRate);
                     }}
-                    className={`px-3 py-1.5 font-bold text-[11px] rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
-                      rateType === "bank"
-                        ? "bg-indigo-600 text-white shadow-sm"
-                        : "text-slate-500 hover:text-slate-800"
-                    }`}
+                    className="px-2.5 py-1.5 bg-slate-150 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded-lg transition-all cursor-pointer"
+                    title={lang === "ar" ? "استعادة القيمة الافتراضية" : "Reset to default"}
                   >
-                    🏦 {lang === "ar" ? "سعر البنك" : "Bank Rate"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRateType("black");
-                    }}
-                    className={`px-3 py-1.5 font-bold text-[11px] rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
-                      rateType === "black"
-                        ? "bg-amber-600 text-white shadow-sm"
-                        : "text-slate-500 hover:text-slate-800"
-                    }`}
-                  >
-                    ⚖️ {lang === "ar" ? "السوق السوداء" : "Black Market"}
-                  </button>
-                </div>
-
-                {/* Main currency toggle */}
-                <span className="text-slate-300 hidden sm:block">|</span>
-
-                <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => setTargetCurrency("LOCAL")}
-                    className={`px-3.5 py-1.5 font-black text-[11px] rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
-                      activeCurrencyMode === "LOCAL"
-                        ? "bg-white text-indigo-950 shadow-xs text-indigo-600"
-                        : "text-slate-500 hover:text-slate-800"
-                    }`}
-                  >
-                    🌐 {activeItinerary.localCurrencySymbol || (lang === "ar" ? "دج" : "DZD")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTargetCurrency("USD")}
-                    className={`px-3.5 py-1.5 font-black text-[11px] rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
-                      activeCurrencyMode === "USD"
-                        ? "bg-white text-indigo-950 shadow-xs text-indigo-600"
-                        : "text-slate-500 hover:text-slate-800"
-                    }`}
-                  >
-                    🇺🇸 USD ($)
+                    {lang === "ar" ? "إعادة تعيين" : "Reset"}
                   </button>
                 </div>
               </div>
             </div>
-
-            {/* Quick Informational Comparison Bar */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-2 font-sans text-xs">
-              <div 
-                onClick={() => setRateType("bank")}
-                className={`p-3 rounded-xl border flex flex-col justify-between gap-1 transition-all cursor-pointer hover:border-indigo-300 ${rateType === "bank" ? "bg-indigo-50/40 border-indigo-200 ring-2 ring-indigo-500/10" : "bg-slate-50/60 border-slate-150"}`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
-                    🏦 {lang === "ar" ? "سعر الصرف البنكي الرسمي" : "Official Bank Exchange Rate"}
-                  </span>
-                  {rateType === "bank" && <span className="px-1.5 py-0.5 rounded text-[9px] bg-indigo-100 text-indigo-700 font-extrabold uppercase">{lang === "ar" ? "نشط" : "Active"}</span>}
-                </div>
-                <div className="text-sm font-black text-slate-900 mt-1">
-                  1 USD = {getDefaultExchangeRate(activeItinerary.country || "", !!activeItinerary.isDomesticTrip, "bank")} {activeItinerary.localCurrencySymbol || (lang === "ar" ? "دج" : "DZD")}
-                </div>
-                <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
-                  {lang === "ar" ? "السعر المعتمد لدى البنوك والتحويلات الرسمية الحكومية." : "Standard rate for sovereign bank conversions and official channels."}
-                </p>
-              </div>
-
-              <div 
-                onClick={() => setRateType("black")}
-                className={`p-3 rounded-xl border flex flex-col justify-between gap-1 transition-all cursor-pointer hover:border-amber-300 ${rateType === "black" ? "bg-amber-50/45 border-amber-200 ring-2 ring-amber-500/10" : "bg-slate-50/60 border-slate-150"}`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
-                    ⚖️ {lang === "ar" ? "سعر السوق الموازية والسكوار" : "Parallel Black Market Rate"}
-                  </span>
-                  {rateType === "black" && <span className="px-1.5 py-0.5 rounded text-[9px] bg-amber-100 text-amber-800 font-extrabold uppercase">{lang === "ar" ? "نشط" : "Active"}</span>}
-                </div>
-                <div className="text-sm font-black text-amber-700 mt-1">
-                  1 USD = {getDefaultExchangeRate(activeItinerary.country || "", !!activeItinerary.isDomesticTrip, "black")} {activeItinerary.localCurrencySymbol || (lang === "ar" ? "دج" : "DZD")}
-                </div>
-                <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">
-                  {lang === "ar" ? "السعر السائد في السوق الموازية غير الرسمية (مفيد لمطابقة ميزانية السفر الفعلية للكاش)." : "Actual parallel market cash rate (essential for liquid pocket travelers matching real-life costs in DZD)."}
-                </p>
-              </div>
-            </div>
-
-            {/* Exchange Rate Adjustment Box */}
-            <div className="bg-slate-50/90 rounded-xl p-4 border border-slate-200/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <span className="text-xs font-bold text-slate-800 block">
-                  {lang === "ar" ? "⚙️ سعر الصرف المعتمد حالياً للتحويل:" : "⚙️ Configured Exchange Rate (Base Rate):"}
-                </span>
-                <p className="text-xs text-slate-600 font-semibold leading-relaxed">
-                  {lang === "ar" 
-                    ? `مبني على سعر: 1 دولار أمريكي (USD) = ${customExchangeRate || 140} ${activeItinerary.localCurrencySymbol || "دج"} (${rateType === "bank" ? "سعر البنك" : "السوق السوداء"})`
-                    : `Based on: 1 USD = ${customExchangeRate || 1.0} ${activeItinerary.localCurrencySymbol || "DZD"} (${rateType === "bank" ? "Bank Rate" : "Black Market"})`}
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2.5">
-                <label className="text-xs font-extrabold text-slate-700 whitespace-nowrap">
-                  {lang === "ar" ? "تعديل سعر الصرف يدوياً:" : "Override Rate:"}
-                </label>
-                <div className="relative rounded-lg">
-                  <input
-                    type="number"
-                    step="any"
-                    min="0.001"
-                    value={customExchangeRate || ""}
-                    onChange={(e) => {
-                      const val = parseFloat(e.target.value);
-                      if (!isNaN(val) && val > 0) setCustomExchangeRate(val);
-                    }}
-                    className="w-28 py-1.5 px-3 rounded-lg border border-slate-250 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-250 text-center"
-                  />
-                </div>
-                
-                {/* Reset button to standard default */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    const isDomestic = !!activeItinerary.isDomesticTrip;
-                    const country = activeItinerary.country || "";
-                    const defaultRate = getDefaultExchangeRate(country, isDomestic, rateType);
-                    setCustomExchangeRate(defaultRate);
-                  }}
-                  className="px-2.5 py-1.5 bg-slate-150 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded-lg transition-all cursor-pointer"
-                  title={lang === "ar" ? "استعادة القيمة الافتراضية" : "Reset to default"}
-                >
-                  {lang === "ar" ? "إعادة تعيين" : "Reset"}
-                </button>
-              </div>
-            </div>
-          </div>
+          )}
 
           {/* Weather & Climate 7-Day Forecast card */}
-          <WeatherForecastCard 
-            destinationName={activeItinerary.destinationName} 
-            lang={lang} 
-            itinerary={activeItinerary}
-          />
+          {visibleWidgets.weatherForecast && (
+            <WeatherForecastCard 
+              destinationName={activeItinerary.destinationName} 
+              lang={lang} 
+              itinerary={activeItinerary}
+            />
+          )}
 
           {/* Prayer Times Card */}
-          <PrayerTimesCard 
-            destinationName={activeItinerary.destinationName} 
-            lang={lang} 
-          />
+          {visibleWidgets.prayerTimes && (
+            <PrayerTimesCard 
+              destinationName={activeItinerary.destinationName} 
+              lang={lang} 
+            />
+          )}
 
           {/* Meteorology & Active Festival Advisories Section */}
           {(activeItinerary.climateAdvisoryAlert || (activeItinerary.localEventsAndExpos && activeItinerary.localEventsAndExpos.length > 0)) && (
@@ -3377,21 +3743,85 @@ ${originStr}
                 </div>
 
                 {/* Intelligent Expense Tracker & Chart Visual Allocation Panel */}
-                <BudgetTracker
-                  itinerary={activeItinerary}
-                  selectedHotel={selectedHotel}
-                  selectedFlight={selectedFlight}
-                  lang={lang}
-                  customExchangeRate={customExchangeRate}
-                  formatPrice={formatPrice}
-                />
+                {visibleWidgets.budgetTracker && (
+                  <BudgetTracker
+                    itinerary={activeItinerary}
+                    selectedHotel={selectedHotel}
+                    selectedFlight={selectedFlight}
+                    lang={lang}
+                    customExchangeRate={customExchangeRate}
+                    formatPrice={formatPrice}
+                  />
+                )}
 
               </div>
             );
           })()}
 
+          {/* Dual Exploration View Switcher: Agenda Planner (timeline) VS visual slides (slideshow) */}
+          <div className="bg-slate-100/70 p-2 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-6 border border-slate-200/50">
+            <div className="flex items-center gap-2.5 px-2">
+              <span className="text-xl">🗺️</span>
+              <div className="text-start">
+                <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">{lang === "ar" ? "وزّع عرض المخطط" : "LAYOUT NAVIGATOR"}</p>
+                <p className="text-xs font-black text-slate-800">{lang === "ar" ? "اختر طريقة استعراض مسار الرحلة" : "Switch Itinerary View Mode"}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setItineraryViewMode("timeline")}
+                className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                  itineraryViewMode === "timeline"
+                    ? "bg-slate-900 border border-slate-950 text-white shadow-sm"
+                    : "bg-white border border-slate-200 text-slate-650 hover:bg-slate-50"
+                }`}
+              >
+                📋 {lang === "ar" ? "جدول خطة الرحلة" : "Agenda Planner"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setItineraryViewMode("slideshow")}
+                className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer relative ${
+                  itineraryViewMode === "slideshow"
+                    ? "bg-indigo-600 border border-indigo-500 text-white shadow-md shadow-indigo-100"
+                    : "bg-white border border-slate-200 text-slate-650 hover:bg-slate-50"
+                }`}
+              >
+                🎬 {lang === "ar" ? "العرض البصري الجذّاب" : "Scenic Slideshow"}
+                <span className="absolute -top-1.5 -right-1 flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <AnimatePresence mode="wait">
+            {itineraryViewMode === "slideshow" && (
+              <motion.div
+                key="scenic-slide-container"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.35 }}
+              >
+                <ScenicSlideshow 
+                  itinerary={activeItinerary} 
+                  lang={lang} 
+                  onLandmarkClick={(landmarkName) => {
+                    setSelectedLandmarkForTrivia(landmarkName);
+                    setIsTriviaModalOpen(true);
+                  }}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Days Interactive Timelines Tabs */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          <div className={itineraryViewMode === "slideshow" ? "hidden" : "grid grid-cols-1 lg:grid-cols-12 gap-8"}>
             {/* Days Slider Navigator (Left/Right) */}
             <div className="lg:col-span-4 space-y-4">
               <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
@@ -3569,7 +3999,17 @@ ${originStr}
                               )}
 
                               <div className="flex items-center justify-between pt-1.5 border-t border-slate-150/20 text-[10.5px] font-semibold text-slate-700">
-                                <span>📍 {act.locationName}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedLandmarkForTrivia(act.locationName);
+                                    setIsTriviaModalOpen(true);
+                                  }}
+                                  className="flex items-center gap-1 cursor-pointer text-indigo-650 hover:text-indigo-800 bg-indigo-50/50 hover:bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100/30 transition-all font-black text-[10px]"
+                                  title={lang === "ar" ? "اضغط هنا لرؤية تاريخ المعلم والذكاء الاصطناعي" : "Click here to see AI historic facts & trivia"}
+                                >
+                                  ✨ 📍 {act.locationName}
+                                </button>
                                 {act.estimatedCostUSD > 0 && (
                                   <span className="text-emerald-700 font-black">
                                     💰 {formatPrice(act.estimatedCostUSD)}
@@ -3892,6 +4332,116 @@ ${originStr}
                     </div>
                   )}
                 </div>
+
+                {/* Dynamic Weather alerts & smart warnings for missing items */}
+                {weatherWarnings.length > 0 && (
+                  <div className="bg-slate-50 border border-slate-150 rounded-2xl p-5 space-y-3.5 shadow-3xs">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-base text-amber-500 animate-pulse">⚠️</span>
+                      <h4 className="font-extrabold text-xs text-slate-800 uppercase tracking-wider">
+                        {lang === "ar" ? "تنبيهات الطقس وتجهيز الحقائب الذكي" : "Weather Forecast Advisories & Action Items"}
+                      </h4>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {weatherWarnings.map((warn) => {
+                        const hasAction = warn.isMissing || warn.isUnpacked;
+                        return (
+                          <div 
+                            key={warn.id}
+                            className={`border rounded-xl p-3.5 flex flex-col justify-between transition-all ${
+                              warn.isMissing 
+                                ? "bg-rose-50/40 border-rose-100 ring-1 ring-rose-500/5" 
+                                : warn.isUnpacked
+                                  ? "bg-amber-50/30 border-amber-100"
+                                  : "bg-emerald-50/20 border-emerald-100"
+                            }`}
+                          >
+                            <div>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-black text-xs text-slate-850">
+                                  {lang === "ar" ? warn.titleAr : warn.titleEn}
+                                </span>
+                                
+                                {warn.isMissing ? (
+                                  <span className="text-[9.5px] font-black bg-rose-100/60 text-rose-700 px-2 py-0.5 rounded-md flex items-center gap-1 border border-rose-200/50">
+                                    <span>⚠️</span>
+                                    <span>{lang === "ar" ? "غير موجود بالقائمة" : "Missing from list"}</span>
+                                  </span>
+                                ) : warn.isUnpacked ? (
+                                  <span className="text-[9.5px] font-black bg-amber-100/50 text-amber-700 px-2 py-0.5 rounded-md flex items-center gap-1 border border-amber-200/30">
+                                    <span>⏳</span>
+                                    <span>{lang === "ar" ? "لم يُعبأ بعد" : "Not packed yet"}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-[9.5px] font-black bg-emerald-100/50 text-emerald-700 px-2 py-0.5 rounded-md flex items-center gap-1 border border-emerald-200/50">
+                                    <span>✓</span>
+                                    <span>{lang === "ar" ? "جاهز ومُعبأ" : "Ready & Packed"}</span>
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-500 font-semibold mt-1">
+                                {lang === "ar" ? `${warn.descAr} ${warn.recommendAr}` : `${warn.descEn} ${warn.recommendEn}`}
+                              </p>
+                            </div>
+
+                            {hasAction && (
+                              <div className="border-t border-slate-200/55 pt-3 mt-3 flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-slate-600 line-clamp-1">
+                                  📦 {lang === "ar" ? warn.itemAr : warn.itemEn}
+                                </span>
+                                
+                                {warn.isMissing ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const textToAdd = lang === "ar" ? warn.itemAr : warn.itemEn;
+                                      handleAddCustomItem(textToAdd);
+                                    }}
+                                    className="p-1 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[10px] rounded-lg cursor-pointer transition-colors shadow-3xs shrink-0"
+                                  >
+                                    {lang === "ar" ? "+ أضف للتعبئة" : "+ Add to list"}
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      // Mark as packed
+                                      const terms = [warn.queryItem, "umbrella", "raincoat", "coat", "jacket", "thermal", "beanie", "gloves", "sunscreen", "sunglasses", "hat", "windbreaker", "scarf", "مظلة", "معطف مطر", "معطف", "سترة شتوية", "حرارية", "واقي", "نظارة شمسية", "قبعة", "سترة واقية", "شال"];
+                                      
+                                      // 1. Try to toggle custom packing item if it fits terms
+                                      const foundCustom = customPackingItems.find(i => terms.some(t => i.text.toLowerCase().includes(t.toLowerCase())) && !i.checked);
+                                      if (foundCustom) {
+                                        handleToggleCustomItem(foundCustom.id);
+                                        return;
+                                      }
+
+                                      // 2. Or toggle pre-generated default items
+                                      let toggled = false;
+                                      for (const cat of (enrichedItinerary?.customPackingList || [])) {
+                                        for (const i of cat.items) {
+                                          const itemKey = `${cat.category}-${i}`;
+                                          if (terms.some(t => i.toLowerCase().includes(t.toLowerCase())) && !checkboxState[itemKey]) {
+                                            toggleCheck(itemKey);
+                                            toggled = true;
+                                            break;
+                                          }
+                                        }
+                                        if (toggled) break;
+                                      }
+                                    }}
+                                    className="p-1 px-3 bg-emerald-600 border border-emerald-500/40 hover:bg-emerald-500 text-white font-black text-[10px] rounded-lg cursor-pointer transition-colors shrink-0"
+                                  >
+                                    {lang === "ar" ? "✓ تعبئة الآن" : "✓ Pack Now"}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {enrichedItinerary?.customPackingList.map((cat, cIdx) => {
@@ -5165,6 +5715,51 @@ ${originStr}
                   </div>
                 </div>
 
+                {/* Printable dynamic packing list checklists */}
+                {(enrichedItinerary?.customPackingList && enrichedItinerary.customPackingList.length > 0) && (
+                  <div className="border border-slate-250 p-3.5 rounded-xl space-y-2.5 mt-2" style={{ pageBreakInside: "avoid" }}>
+                    <div className="font-extrabold text-slate-900 border-b border-slate-350 pb-1 flex items-center justify-between gap-1.5 uppercase text-[10.5px]">
+                      <span className="flex items-center gap-1.5 truncate">
+                        🧳 {lang === "ar" ? "مربعات التعبئة والتحضير للمسافر (يدوية/للطباعة)" : "TRAVELER PACKING CHECKLISTS (PRINT & CHECK CHECKS)"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleTriggerAiAdditions}
+                        disabled={packingAiLoading}
+                        className="print:hidden px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[9px] font-extrabold flex items-center gap-1 cursor-pointer transition-all disabled:opacity-50 shrink-0 select-none shadow-3xs uppercase text-right sm:text-left"
+                      >
+                        {packingAiLoading ? (
+                          <>
+                            <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping shrink-0" />
+                            {lang === "ar" ? "جاري ترشيح..." : "Analyzing..."}
+                          </>
+                        ) : (
+                          <>
+                            ✨ {lang === "ar" ? "إضافات AI ذكية" : "AI Additions"}
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-start">
+                      {enrichedItinerary.customPackingList.map((cat, cIdx) => (
+                        <div key={cIdx} className="space-y-1.5">
+                          <div className="font-bold text-slate-800 border-b border-slate-150 pb-0.5 text-[10px]">
+                            {cat.category}
+                          </div>
+                          <div className="space-y-1">
+                            {cat.items.map((item, iIdx) => (
+                              <div key={iIdx} className="flex items-center gap-1.5 text-[9px] text-slate-650 font-semibold">
+                                <span className="w-3 h-3 border border-slate-400 rounded-sm inline-block shrink-0" />
+                                <span className="truncate">{item}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Footer */}
                 <div className="text-center pt-4 border-t border-slate-200 text-[10px] text-slate-400 font-medium">
                   {lang === "ar"
@@ -5606,6 +6201,13 @@ ${originStr}
           ))}
         </AnimatePresence>
       </div>
+
+      <LandmarkTriviaModal
+        isOpen={isTriviaModalOpen}
+        onClose={() => setIsTriviaModalOpen(false)}
+        landmarkName={selectedLandmarkForTrivia}
+        lang={lang}
+      />
     </div>
   );
 }

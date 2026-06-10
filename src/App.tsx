@@ -22,7 +22,12 @@ import {
   Map,
   MapPin,
   Calendar,
-  Sun
+  Sun,
+  Trophy,
+  ShieldAlert,
+  CheckCircle2,
+  Wifi,
+  WifiOff
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Itinerary, FlightMock, HotelMock } from "./types";
@@ -40,6 +45,7 @@ import PrayerTimesCard from "./components/PrayerTimesCard";
 import WeatherForecastCard from "./components/WeatherForecastCard";
 import InteractiveMap, { resolveCoordinates } from "./components/InteractiveMap";
 import RegionalHub from "./components/RegionalHub";
+import SportsHub from "./components/SportsHub";
 
 // Qibla Direction calculator copy helper
 function calculateQibla(lat: number, lng: number): number {
@@ -221,7 +227,7 @@ const InteractiveTravelCompass = ({ lang, lat, lng }: { lang: "ar" | "en"; lat: 
 export default function App() {
   // Default to Arabic since the prompt was in Arabic, but allow quick bilingual switch!
   const [lang, setLang] = useState<"ar" | "en">("ar");
-  const [currentPage, setCurrentPage] = useState<"portal" | "atmosphere" | "maps_compass" | "regional_hub">("portal");
+  const [currentPage, setCurrentPage] = useState<"portal" | "atmosphere" | "maps_compass" | "regional_hub" | "sports_hub">("portal");
   const [activeTab, setActiveTab] = useState<"planner" | "search" | "vault" | "chat" | "fos7a">("planner");
   const [activeTheme, setActiveTheme] = useState<string>(() => {
     return localStorage.getItem("app_theme") || "autumn";
@@ -232,11 +238,91 @@ export default function App() {
   const [themeSubPanel, setThemeSubPanel] = useState<"seasons" | "heritage">("seasons");
   const [showThemeMenu, setShowThemeMenu] = useState<boolean>(false);
   
-  // App-level state coordination
-  const [activeItinerary, setActiveItinerary] = useState<Itinerary | null>(null);
-  const [selectedFlight, setSelectedFlight] = useState<FlightMock | null>(null);
-  const [selectedHotel, setSelectedHotel] = useState<HotelMock | null>(null);
+  // Offline sync states
+  const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== "undefined" ? navigator.onLine : true);
+  const [showSyncManager, setShowSyncManager] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+  
+  // App-level state coordination with offline cache support
+  const [activeItinerary, setActiveItinerary] = useState<Itinerary | null>(() => {
+    try {
+      const saved = localStorage.getItem("fos7a_active_itinerary");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [selectedFlight, setSelectedFlight] = useState<FlightMock | null>(() => {
+    try {
+      const saved = localStorage.getItem("fos7a_active_flight");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [selectedHotel, setSelectedHotel] = useState<HotelMock | null>(() => {
+    try {
+      const saved = localStorage.getItem("fos7a_active_hotel");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Track state changes to preserve cache across sessions
+  useEffect(() => {
+    if (activeItinerary) {
+      localStorage.setItem("fos7a_active_itinerary", JSON.stringify(activeItinerary));
+    } else {
+      localStorage.removeItem("fos7a_active_itinerary");
+    }
+  }, [activeItinerary]);
+
+  useEffect(() => {
+    if (selectedFlight) {
+      localStorage.setItem("fos7a_active_flight", JSON.stringify(selectedFlight));
+    } else {
+      localStorage.removeItem("fos7a_active_flight");
+    }
+  }, [selectedFlight]);
+
+  useEffect(() => {
+    if (selectedHotel) {
+      localStorage.setItem("fos7a_active_hotel", JSON.stringify(selectedHotel));
+    } else {
+      localStorage.removeItem("fos7a_active_hotel");
+    }
+  }, [selectedHotel]);
+
   const [plannerCoordinationTypeOverride, setPlannerCoordinationTypeOverride] = useState<"optional" | "fos7a" | null>(null);
+
+  // Cross-page listener to keep activeItinerary state synchronized when updated by sub-components
+  useEffect(() => {
+    const handleItineraryChange = () => {
+      try {
+        const saved = localStorage.getItem("fos7a_active_itinerary");
+        if (saved) {
+          setActiveItinerary(JSON.parse(saved));
+        }
+      } catch (e) {
+        console.error("Failed to sync travel itinerary event:", e);
+      }
+    };
+    window.addEventListener("fos7a_local_itinerary_changed", handleItineraryChange);
+    return () => {
+      window.removeEventListener("fos7a_local_itinerary_changed", handleItineraryChange);
+    };
+  }, []);
 
   // Translation Customized Labs & States
   const [customTranslations, setCustomTranslations] = useState<Record<string, string>>(() => {
@@ -587,6 +673,99 @@ export default function App() {
               )}
             </div>
 
+              {/* Offline Synchronization Status Manager Indicator */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowSyncManager(!showSyncManager)}
+                  type="button"
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all border flex items-center gap-1.5 cursor-pointer select-none ${
+                    showSyncManager
+                      ? "bg-emerald-950 border-emerald-600 text-emerald-300"
+                      : isOnline
+                        ? "bg-emerald-50/60 hover:bg-emerald-100 border-emerald-150 text-emerald-750"
+                        : "bg-rose-50 border-rose-200 text-rose-700 animate-pulse"
+                  }`}
+                  title={lang === "ar" ? "حالة المزامنة والعمل بدون إنترنت" : "Offline Sync & Local Preservation Status"}
+                >
+                  {isOnline ? (
+                    <>
+                      <Wifi className="w-4 h-4 text-emerald-500" />
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                      <span>{lang === "ar" ? "تزامن محفوظ" : "Synced"}</span>
+                    </>
+                  ) : (
+                    <>
+                      <WifiOff className="w-4 h-4 text-rose-500" />
+                      <span>{lang === "ar" ? "يعمل محلياً" : "Offline"}</span>
+                    </>
+                  )}
+                </button>
+
+                {showSyncManager && (
+                  <>
+                    <div className="fixed inset-0 z-40 cursor-default" onClick={() => setShowSyncManager(false)} />
+                    <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-150 rounded-2xl p-5 shadow-xl z-50 text-slate-800 space-y-4 text-right" style={{ direction: lang === "ar" ? "rtl" : "ltr" }}>
+                      <div className="border-b border-slate-100 pb-2.5">
+                        <h4 className="font-extrabold text-xs text-slate-800 flex items-center gap-1.5">
+                          <span>🔄 {lang === "ar" ? "مركز التزامن المحايد المباشر" : "Offline Sync Control Hub"}</span>
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-bold leading-normal mt-1">
+                          {lang === "ar" 
+                            ? "تتم كتابة وحفظ جميع حجوزاتك ومفكرتك محلياً فوراً لتصفحها في الصحراء والملاعب دون إنترنت." 
+                            : "Your itinerary, match ticket vouchers, and language overrides are instantly preserved locally."}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2 text-xs font-semibold">
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100/60">
+                          <span className="text-slate-500">{lang === "ar" ? "حالة الشبكة:" : "Network State:"}</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-black ${isOnline ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
+                            {isOnline ? (lang === "ar" ? "متصل بالإنترنت" : "Online Connected") : (lang === "ar" ? "منقطع / تعمل محلياً" : "Offline / Local")}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between p-1.5 px-2.5">
+                          <span className="text-slate-500">{lang === "ar" ? "مفكرة الرحلة النشطة:" : "Active Plan Cache:"}</span>
+                          <span className="font-bold text-slate-800">
+                            {activeItinerary ? "🟢 " + (lang === "ar" ? "محفوظة ومؤمنة" : "Secured") : "⚪ " + (lang === "ar" ? "شاغرة" : "None")}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between p-1.5 px-2.5 border-t border-slate-100/50">
+                          <span className="text-slate-500">{lang === "ar" ? "تذاكر وحجوزات الملاعب:" : "Sports Tickets Cache:"}</span>
+                          <span className="font-bold text-indigo-750">
+                            🟢 {(JSON.parse(localStorage.getItem("fos7a_sports_bookings") || "[]")).length} {lang === "ar" ? "تذاكر محفوظة ومؤمنة" : "Passes Synced"}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between p-1.5 px-2.5 border-t border-slate-100/50">
+                          <span className="text-slate-500">{lang === "ar" ? "تعديلات اللهجات والترجمة:" : "Dialect glossary overrides:"}</span>
+                          <span className="font-bold text-slate-800">
+                            🟢 {Object.keys(JSON.parse(localStorage.getItem("custom_translations_overrides") || "{}")).length} {lang === "ar" ? "مصطلح مخصص" : "Words"}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between p-1.5 px-2.5 border-t border-slate-100/50">
+                          <span className="text-slate-500">{lang === "ar" ? "سجل الرحلات بالمحفظة:" : "Saved Trips Vault:"}</span>
+                          <span className="font-bold text-slate-800">
+                            🟢 {(JSON.parse(localStorage.getItem("saved_trips") || "[]")).length} {lang === "ar" ? "رحلة مؤمنة" : "Trips Cached"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-2.5 text-[10.5px] text-emerald-800 leading-normal font-bold">
+                        🎉 {lang === "ar" 
+                          ? "جاهز تمامًا للتجول البري في الجزائر ودخول الملعب دون الحاجة لتغطية 4G/5G!" 
+                          : "Fully calibrated for off-grid desert hikes or dense stadiums without requiring cellular service!"}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
               {/* Expand Translations Settings button */}
               <button
                 onClick={() => setShowTranslationLab(prev => !prev)}
@@ -664,14 +843,14 @@ export default function App() {
         </AnimatePresence>
 
         {/* Dynamic Multi-Page Selector Module */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           {[
             {
               id: "portal" as const,
               labelAr: "بوابة سفرك المتكاملة",
               labelEn: "Integrated Travel Portal",
               descAr: "مخطط الرحلات الذكي، وحجز الطيران والفنادق، ونبض المساعد وتكامل سحابة فسحة",
-              descEn: "Forge AI travel blueprints, search flights/hotels, talk with guides & sync itineraries",
+              descEn: "AI travel blueprints, offline flights & hotels, advisor chats & live itinerary preservation",
               icon: <Compass className="w-5 h-5" />,
               color: "indigo"
             },
@@ -679,28 +858,37 @@ export default function App() {
               id: "atmosphere" as const,
               labelAr: "مواقيت الصلاة والأجواء",
               labelEn: "Prayers & Climate Outlook",
-              descAr: "الساعة المباشرة، ومواقيت صلاة المسافرين (رخصة الفطر والجمع) وحساب القبلة وتوقعات الطقس ومقترحات التعبئة",
-              descEn: "Live standard clocks, prayer tables helper, virtual Qibla dial & weather forecasts",
+              descAr: "صلاة المسافرين والقصر والرخص وحساب القبلة والطقس ومقترحات التعبئة الذكية للحقائب",
+              descEn: "Travel clocks, prayer helpers, virtual Qibla dial & smart destination climate alerts",
               icon: <Clock className="w-5 h-5" />,
               color: "amber"
             },
             {
               id: "maps_compass" as const,
-              labelAr: "الخرائط والبوصلة التفاعلية",
+              labelAr: "الخرائط والبوصلةالتفاعلية",
               labelEn: "Interactive Maps & Compass",
-              descAr: "تتبع المسافات والإحداثيات (GPS)، خطوط السير البرية والسكك الحديدية وعربات الوقوف والبوصلة الرقمية ثنائية التوجيه",
-              descEn: "Seamless airline tracks, railway corridor bedding, layover stops, and digital physical compass gauge",
+              descAr: "تتبع المسافات والإحداثيات (GPS)، عربات السير السكنية البدوية والبوصلة الرقمية ثنائية التوجيه",
+              descEn: "Seamless transit overlays, GPS coordinates, physical compass tracker, and Sahara tracks",
               icon: <Map className="w-5 h-5" />,
               color: "emerald"
             },
             {
               id: "regional_hub" as const,
-              labelAr: "ساحة الأحداث والجمال الفصلي",
-              labelEn: "Festivals & Seasonal Wellness",
-              descAr: "روزنامة المهرجانات الوطنية والشعبية، عمود الأخبار والرحلات البيئية المستدامة، واستشارات الصحة والعناية الفصيلة",
-              descEn: "Local folklore calendars, eco-safari chronicles, and custom medical wellness & beauty suggestions",
+              labelAr: "ساحة الأحداث والجمال",
+              labelEn: "Festivals & Wellness Hub",
+              descAr: "المهرجانات التراثية، عمود الأخبار والرحلات البيئية، واستشارات الصحة والعناية الفصيلة بالجزائر",
+              descEn: "Bespoke folklore calendars, eco-safari routes, and traditional regional beauty advisors",
               icon: <Sparkles className="w-5 h-5" />,
               color: "rose"
+            },
+            {
+              id: "sports_hub" as const,
+              labelAr: "ملاعب ومباريات كرة القدم",
+              labelEn: "Stadia & Football Matches",
+              descAr: "تتبع نتائج الدوريات المحلي والأوروبية والعربية، تواريخ كباري كؤوس العالم وصنع رحلات وحجوزات تذاكر المباريات",
+              descEn: "Follow local and global championships, view stadium schedules, book entry tickets & matching tours",
+              icon: <Trophy className="w-5 h-5" />,
+              color: "amber"
             }
           ].map((page) => {
             const isSelected = currentPage === page.id;
@@ -725,14 +913,16 @@ export default function App() {
                     <h2 className="font-extrabold text-sm tracking-tight">
                       {lang === "ar" ? page.labelAr : page.labelEn}
                     </h2>
-                    <span className={`text-[10px] font-bold block mt-0.5 ${isSelected ? "text-indigo-100" : "text-slate-400"}`}>
+                    <span className={`text-[10px] font-bold block mt-0.5 ${isSelected ? "text-indigo-150" : "text-slate-400"}`}>
                       {page.id === "portal" 
                         ? `(${t.navPlanner})` 
                         : page.id === "atmosphere" 
                           ? `(🌦️ ${lang === "ar" ? "الأجواء" : "Climate"})` 
                           : page.id === "maps_compass" 
                             ? `(🗺️ ${lang === "ar" ? "الخرائط والبوصلة" : "Compass"})` 
-                            : `(🌸 ${lang === "ar" ? "الأحداث والجمال" : "Regional Hub"})`}
+                            : page.id === "sports_hub"
+                              ? `(⚽ ${lang === "ar" ? "الملاعب والبطولات" : "Matches"})`
+                              : `(🌸 ${lang === "ar" ? "الأحداث والجمال" : "Regional Hub"})`}
                     </span>
                   </div>
                 </div>
@@ -1004,6 +1194,13 @@ export default function App() {
                   lang={lang}
                   activeSeasonTheme={activeTheme}
                   destinationCity={activeItinerary?.destinationName}
+                />
+              )}
+
+              {currentPage === "sports_hub" && (
+                <SportsHub 
+                  lang={lang}
+                  activeItinerary={activeItinerary}
                 />
               )}
             </motion.div>

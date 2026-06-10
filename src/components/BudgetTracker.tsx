@@ -21,7 +21,13 @@ import {
   Pie, 
   Cell, 
   Tooltip as RechartsTooltip,
-  Legend
+  Legend,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  ReferenceLine
 } from "recharts";
 import { Itinerary } from "../types";
 import { motion, AnimatePresence } from "motion/react";
@@ -323,15 +329,113 @@ export default function BudgetTracker({
     };
   }, [totalBaseCost, isDomestic, customExchangeRate]);
 
+  // Compute daily spending timeline and cumulative trip budget consumption
+  const dailySpendingTimeline = useMemo(() => {
+    if (!itinerary.days || itinerary.days.length === 0) return [];
+
+    let cumulativeCost = 0;
+    const lodgingPerDay = adjustedHotelVal / tripDays;
+    
+    // Pro-rate shopping, emergency, and other expenses across the trip timeline
+    const shoppingPerDay = (parsedActivitiesBreakdown.shopping + customSumByCategory.shopping) / tripDays;
+    const emergencyPerDay = customSumByCategory.emergency / tripDays;
+    const otherPerDay = customSumByCategory.other / tripDays;
+
+    return itinerary.days.map((day, index) => {
+      const isDay1 = index === 0;
+      
+      // Filter activities for this day
+      const dayActivities = day.activities?.map(act => {
+        const cost = act.estimatedCostUSD || 0;
+        const cat = getAutoCategoryOfActivity(act.title, act.description);
+        return {
+          title: act.title,
+          description: act.description,
+          timeOfDay: act.timeOfDay,
+          cost,
+          category: cat
+        };
+      }) || [];
+
+      // Actual attraction activities cost for this day
+      const attractionCost = dayActivities
+        .filter(act => act.category === "activities")
+        .reduce((sum, act) => sum + act.cost, 0);
+
+      // Dining cost distribution for this day
+      let diningCost = 0;
+      if (manualDiningOverride !== null) {
+        diningCost = adjustedDiningVal / tripDays;
+      } else {
+        const foodActivitiesCost = dayActivities
+          .filter(act => act.category === "food")
+          .reduce((sum, act) => sum + act.cost, 0);
+        const customDiningPerDay = customSumByCategory.dining / tripDays;
+        diningCost = foodActivitiesCost + customDiningPerDay;
+      }
+
+      // Transport cost distribution for this day
+      let transportCost = 0;
+      if (manualTransportOverride !== null) {
+        transportCost = adjustedTransportVal / tripDays;
+      } else {
+        const transportActivitiesCost = dayActivities
+          .filter(act => act.category === "transport")
+          .reduce((sum, act) => sum + act.cost, 0);
+        const flightCostOnDay = isDay1 ? finalFlightVal : 0;
+        transportCost = transportActivitiesCost + flightCostOnDay;
+      }
+
+      // Pro-rated general other items
+      const dailyOthersCost = shoppingPerDay + emergencyPerDay + otherPerDay;
+
+      // Combined total for this specific day
+      const dayTotalCost = 
+        lodgingPerDay + 
+        diningCost + 
+        transportCost + 
+        attractionCost + 
+        dailyOthersCost;
+
+      cumulativeCost += dayTotalCost;
+
+      return {
+        dayNumber: day.dayNumber,
+        theme: day.theme || "",
+        activities: dayActivities,
+        lodgingCost: lodgingPerDay,
+        diningCost,
+        transportCost,
+        attractionCost,
+        shoppingCost: shoppingPerDay,
+        emergencyCost: emergencyPerDay,
+        otherCost: otherPerDay,
+        dayTotalCost,
+        cumulativeCost
+      };
+    });
+  }, [
+    itinerary.days,
+    adjustedHotelVal,
+    adjustedTransportVal,
+    adjustedDiningVal,
+    manualDiningOverride,
+    manualTransportOverride,
+    customSumByCategory,
+    parsedActivitiesBreakdown,
+    finalFlightVal,
+    tripDays
+  ]);
+
   const formatConvertedPrice = (val: number, curr: "USD" | "EUR" | "DZD") => {
     if (curr === "USD") {
-      return `$${Math.round(val).toLocaleString()}`;
+      return `$${Math.round(val).toLocaleString("en-US")}`;
     }
     if (curr === "EUR") {
-      return `€${Math.round(val).toLocaleString()}`;
+      return `€${Math.round(val).toLocaleString("en-US")}`;
     }
     const suffix = lang === "ar" ? "دج" : "DZD";
-    return `${Math.round(val).toLocaleString()} ${suffix}`;
+    return `${Math.round(val).toLocaleString("en-US")} ${suffix}`;
   };
 
   // Seasonal Monthly Multipliers for benchmarking budget trends at destination
@@ -700,7 +804,7 @@ export default function BudgetTracker({
               <span className="text-[9.5px] text-slate-400 block font-semibold leading-normal">
                 {manualHotelOverride !== null 
                   ? (lang === "ar" ? "✨ تم التعديل يدويًا" : "✨ Rate overridden manually")
-                  : (lang === "ar" ? `المقدر تلقائياً: ${Math.round(finalHotelVal).toLocaleString()}` : `Computed rate: ${Math.round(finalHotelVal).toLocaleString()}`)}
+                  : (lang === "ar" ? `المقدر تلقائياً: ${Math.round(finalHotelVal).toLocaleString("en-US")}` : `Computed rate: ${Math.round(finalHotelVal).toLocaleString("en-US")}`)}
               </span>
             </div>
 
@@ -736,7 +840,7 @@ export default function BudgetTracker({
               <span className="text-[9.5px] text-slate-400 block font-semibold leading-normal">
                 {manualTransportOverride !== null 
                   ? (lang === "ar" ? "✨ تم التعديل يدويًا" : "✨ Rate overridden manually")
-                  : (lang === "ar" ? `المقدر تلقائياً: ${Math.round(finalFlightVal + parsedActivitiesBreakdown.transport).toLocaleString()}` : `Computed rate: ${Math.round(finalFlightVal + parsedActivitiesBreakdown.transport).toLocaleString()}`)}
+                  : (lang === "ar" ? `المقدر تلقائياً: ${Math.round(finalFlightVal + parsedActivitiesBreakdown.transport).toLocaleString("en-US")}` : `Computed rate: ${Math.round(finalFlightVal + parsedActivitiesBreakdown.transport).toLocaleString("en-US")}`)}
               </span>
             </div>
 
@@ -772,7 +876,7 @@ export default function BudgetTracker({
               <span className="text-[9.5px] text-slate-400 block font-semibold leading-normal">
                 {manualDiningOverride !== null 
                   ? (lang === "ar" ? "✨ تم التعديل يدويًا" : "✨ Rate overridden manually")
-                  : (lang === "ar" ? `المقدر تلقائياً: ${Math.round(customSumByCategory.dining + parsedActivitiesBreakdown.food).toLocaleString()}` : `Computed rate: ${Math.round(customSumByCategory.dining + parsedActivitiesBreakdown.food).toLocaleString()}`)}
+                  : (lang === "ar" ? `المقدر تلقائياً: ${Math.round(customSumByCategory.dining + parsedActivitiesBreakdown.food).toLocaleString("en-US")}` : `Computed rate: ${Math.round(customSumByCategory.dining + parsedActivitiesBreakdown.food).toLocaleString("en-US")}`)}
               </span>
             </div>
           </div>
@@ -1303,6 +1407,269 @@ export default function BudgetTracker({
                 {lang === "ar" ? "لا توجد أنشطة بالبرنامج لتصنيفها بعد" : "No program activities found to classify yet."}
               </p>
             )}
+          </div>
+
+          {/* Daily Spending Breakdown Timeline Table Section */}
+          <div className="border-t border-slate-150 pt-4 space-y-6">
+            
+            {/* Recharts Daily Budget Tracking Bar Chart */}
+            <div className="bg-slate-50 border border-slate-150 rounded-xl p-4 sm:p-5" id="daily-budget-recharts-card">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4">
+                <div>
+                  <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5 uppercase tracking-wider">
+                    <span>📊</span>
+                    <span>{lang === "ar" ? "مخطط الإنفاق اليومي مقارنة بالميزانية المحددة" : "Daily Spending vs. Target Budget Chart"}</span>
+                  </h4>
+                  <p className="text-[9.5px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">
+                    {lang === "ar" 
+                      ? "رسم بياني يوضح الإنفاق لكل يوم مقابل الميزانية اليومية المحددة للرحلة" 
+                      : "Visual comparison of actual daily spend against the daily target budget limit"}
+                  </p>
+                </div>
+                {limitNum > 0 && (
+                  <div className="text-[10px] bg-indigo-50 border border-indigo-100 text-indigo-700 px-2.5 py-1 rounded-lg font-bold font-mono">
+                    {lang === "ar" ? `الحد اليومي المستهدف: ` : `Daily Limit Target: `}
+                    {formatPrice(limitNum / tripDays)}
+                  </div>
+                )}
+              </div>
+
+              <div className="h-[280px] w-full mt-2 text-xs font-semibold font-mono">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={dailySpendingTimeline.map(item => ({
+                      name: lang === "ar" ? `يوم ${item.dayNumber}` : `Day ${item.dayNumber}`,
+                      [lang === "ar" ? "الإنفاق الفعلي" : "Actual Spend"]: Math.round(item.totalDayCost),
+                      [lang === "ar" ? "الميزانية اليومية" : "Daily Budget"]: limitNum > 0 ? Math.round(limitNum / tripDays) : 15000
+                    }))}
+                    margin={{ top: 10, right: 10, left: -20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                    <XAxis 
+                      dataKey="name" 
+                      stroke="#64748b" 
+                      fontSize={10} 
+                      tickLine={false} 
+                      axisLine={false}
+                    />
+                    <YAxis 
+                      stroke="#64748b" 
+                      fontSize={10} 
+                      tickLine={false} 
+                      axisLine={false}
+                      tickFormatter={(val) => formatPrice(val)}
+                    />
+                    <RechartsTooltip
+                      contentStyle={{
+                        backgroundColor: "#1e293b",
+                        border: "none",
+                        borderRadius: "12px",
+                        padding: "10px 14px",
+                        color: "#f8fafc",
+                        fontSize: "11px",
+                      }}
+                      cursor={{ fill: '#f8fafc', opacity: 0.05 }}
+                    />
+                    <Legend 
+                      verticalAlign="top" 
+                      height={36} 
+                      iconSize={8}
+                      iconType="circle"
+                      wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }}
+                    />
+                    <Bar 
+                      dataKey={lang === "ar" ? "الإنفاق الفعلي" : "Actual Spend"} 
+                      fill="#4f46e5" 
+                      radius={[4, 4, 0, 0]}
+                      maxBarSize={45}
+                    >
+                      {dailySpendingTimeline.map((item, index) => {
+                        const actual = item.totalDayCost;
+                        const budgetLimit = limitNum > 0 ? limitNum / tripDays : 0;
+                        const isOver = budgetLimit > 0 && actual > budgetLimit;
+                        return (
+                          <Cell 
+                            key={`cell-${index}`} 
+                            fill={isOver ? "#f43f5e" : "#4f46e5"} 
+                          />
+                        );
+                      })}
+                    </Bar>
+                    {limitNum > 0 && (
+                      <ReferenceLine 
+                        y={Math.round(limitNum / tripDays)} 
+                        stroke="#f43f5e" 
+                        strokeDasharray="4 4" 
+                        strokeWidth={1.5}
+                        label={{ 
+                          value: lang === "ar" ? "الحد اليومي ⚠️" : "Target limit ⚠️", 
+                          fill: "#f43f5e", 
+                          fontSize: 9, 
+                          position: "top",
+                          fontWeight: "black"
+                        }} 
+                      />
+                    )}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 px-1">
+              <div>
+                <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5 uppercase tracking-wider">
+                  <span>📅</span>
+                  <span>{lang === "ar" ? "تفاصيل استهلاك الميزانية اليومي للرحلة" : "Daily Budget Consumption & Trip Timeline"}</span>
+                </h4>
+                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+                  {lang === "ar" 
+                    ? "تتبع تفصيلي للمصاريف اليومية وكيفية استهلاك الميزانية طيلة الرحلة" 
+                    : "Step-by-step breakdown of daily spending and cumulative consumption"}
+                </p>
+              </div>
+              <span className="text-[9px] font-black text-indigo-700 bg-indigo-50 border border-indigo-150/45 px-2.5 py-1 rounded-md self-start sm:self-center">
+                {lang === "ar" ? `موزعة على ${tripDays} أيام` : `Distributed over ${tripDays} days`}
+              </span>
+            </div>
+
+            <div className="overflow-x-auto border border-slate-150 rounded-xl" id="daily-budget-timeline-table">
+              <table className="w-full text-right border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-150 text-slate-500 font-bold uppercase text-[9.5px] tracking-wider">
+                    <th className="p-3 text-center shrink-0 w-24">
+                      {lang === "ar" ? "اليوم" : "Day"}
+                    </th>
+                    <th className="p-3 text-right">
+                      {lang === "ar" ? "تفاصيل وتوزيع الإنفاق اليومي" : "Daily Expenses Distribution"}
+                    </th>
+                    <th className="p-3 text-right w-32">
+                      {lang === "ar" ? "مجموع اليوم" : "Day Total"}
+                    </th>
+                    <th className="p-3 text-right w-36">
+                      {lang === "ar" ? "المستهلك المتراكم" : "Cumulative Spent"}
+                    </th>
+                    {limitNum > 0 && (
+                      <th className="p-3 text-right w-38">
+                        {lang === "ar" ? "الميزانية المتبقية" : "Remaining Budget"}
+                      </th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {dailySpendingTimeline.map((item, idx) => {
+                    const isOverLimit = limitNum > 0 && item.cumulativeCost > limitNum;
+                    const remainingBudgetAfterDay = limitNum - item.cumulativeCost;
+                    
+                    return (
+                      <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                        {/* Day Code & Theme */}
+                        <td className="p-3 text-slate-800 font-black text-center align-top whitespace-nowrap">
+                          <span className="inline-block bg-indigo-50 border border-indigo-100/60 text-indigo-700 text-[10.5px] px-2.5 py-1 rounded-lg font-mono">
+                            {lang === "ar" ? `اليوم ${item.dayNumber}` : `Day ${item.dayNumber}`}
+                          </span>
+                          <p className="text-[9px] text-slate-400 font-extrabold mt-1 truncate max-w-[120px] text-center" title={item.theme}>
+                            {item.theme}
+                          </p>
+                        </td>
+
+                        {/* Day details & Scheduled Activities */}
+                        <td className="p-3 space-y-3 text-right">
+                          {/* Visual quick bars representing breakdown segments */}
+                          <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-[10px]">
+                            {/* Lodging segment */}
+                            {item.lodgingCost > 0 && (
+                              <div className="bg-slate-50 border border-slate-100 p-1.5 rounded-lg flex flex-col justify-between">
+                                <span className="text-slate-450 text-[8px] font-black">🏨 {lang === "ar" ? "الإقامة والسكن" : "Lodging"}</span>
+                                <span className="font-bold text-slate-800 font-mono mt-0.5">{formatPrice(item.lodgingCost)}</span>
+                              </div>
+                            )}
+
+                            {/* Dining segment */}
+                            {item.diningCost > 0 && (
+                              <div className="bg-slate-50 border border-slate-100 p-1.5 rounded-lg flex flex-col justify-between">
+                                <span className="text-slate-450 text-[8px] font-black">🍽️ {lang === "ar" ? "مأكولات ووجبات" : "Dining"}</span>
+                                <span className="font-bold text-slate-800 font-mono mt-0.5">{formatPrice(item.diningCost)}</span>
+                              </div>
+                            )}
+
+                            {/* Transport segment */}
+                            {item.transportCost > 0 && (
+                              <div className="bg-slate-50 border border-slate-100 p-1.5 rounded-lg flex flex-col justify-between">
+                                <span className="text-slate-450 text-[8px] font-black">🚌 {lang === "ar" ? "النقل والمواصلات" : "Transit"}</span>
+                                <span className="font-bold text-slate-800 font-mono mt-0.5">{formatPrice(item.transportCost)}</span>
+                              </div>
+                            )}
+
+                            {/* Program activities / attractions segment */}
+                            {item.attractionCost > 0 && (
+                              <div className="bg-indigo-50/40 border border-indigo-100/60 p-1.5 rounded-lg flex flex-col justify-between">
+                                <span className="text-indigo-600 text-[8px] font-black">🎯 {lang === "ar" ? "الأنشطة والزيارات" : "Attractions"}</span>
+                                <span className="font-extrabold text-indigo-700 font-mono mt-0.5">{formatPrice(item.attractionCost)}</span>
+                              </div>
+                            )}
+                            
+                            {/* Shopping or other pro-rated part */}
+                            {(item.shoppingCost + item.emergencyCost + item.otherCost) > 0 && (
+                              <div className="bg-slate-50 border border-slate-100 p-1.5 rounded-lg flex flex-col justify-between">
+                                <span className="text-slate-450 text-[8px] font-black">➕ {lang === "ar" ? "نفقات تسوق وعامة" : "Other & Shop"}</span>
+                                <span className="font-bold text-slate-750 font-mono mt-0.5">
+                                  {formatPrice(item.shoppingCost + item.emergencyCost + item.otherCost)}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Day's Scheduled program activities listing */}
+                          {item.activities.length > 0 && (
+                            <div className="border border-slate-100 rounded-lg p-2 bg-slate-50/10 space-y-1">
+                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right pr-0.5 pb-1">
+                                {lang === "ar" ? "📌 المعالم والأنشطة المجدولة لليوم:" : "📌 Day Scheduled Activities Breakdown:"}
+                              </p>
+                              <div className="space-y-1">
+                                {item.activities.map((act, actIdx) => (
+                                  <div key={actIdx} className="flex justify-between items-center text-[10px] bg-white border border-slate-100 p-1.5 rounded-md hover:border-slate-200 transition-colors">
+                                    <span className="text-slate-700 font-semibold flex items-center gap-1">
+                                      <span className="text-[9.5px]">
+                                        {act.category === "transport" ? "🚌" : act.category === "food" ? "🍽️" : act.category === "shopping" ? "🛍️" : "🎯"}
+                                      </span>
+                                      <strong className="text-slate-850 font-bold">{act.title}</strong>
+                                      <span className="text-slate-400 font-normal italic text-[8.5px]">({act.timeOfDay})</span>
+                                    </span>
+                                    <span className="font-bold font-mono text-slate-600">
+                                      {act.cost > 0 ? formatPrice(act.cost) : (lang === "ar" ? "مجاني" : "Free")}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Day cumulative row total */}
+                        <td className="p-3 font-extrabold text-slate-900 font-mono text-right align-top">
+                          {formatPrice(item.dayTotalCost)}
+                        </td>
+
+                        {/* Trip Cumulative Consumption Timeline progress */}
+                        <td className="p-3 font-bold text-indigo-750 font-mono text-right align-top bg-indigo-50/20">
+                          {formatPrice(item.cumulativeCost)}
+                        </td>
+
+                        {/* Leftover trip budget limit monitoring */}
+                        {limitNum > 0 && (
+                          <td className={`p-3 font-bold font-mono text-right align-top ${isOverLimit ? "text-rose-600 bg-rose-50/10" : "text-emerald-700 bg-emerald-50/10"}`}>
+                            {isOverLimit ? "-" : ""}{formatPrice(Math.abs(remainingBudgetAfterDay))}
+                            <span className={`block text-[8px] font-black font-sans uppercase mt-1 ${isOverLimit ? "text-rose-500 animate-pulse" : "text-emerald-600"}`}>
+                              {isOverLimit ? (lang === "ar" ? "⚠️ تجاوز السقف" : "⚠️ OVER CEILING") : (lang === "ar" ? "🛡️ رصيد آمن" : "🛡️ SAFE MARGIN")}
+                            </span>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* New Summary Footer: Smart Savings Potential & Luxury Comparison */}

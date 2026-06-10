@@ -2,7 +2,8 @@
   "name": "Remix: Remix: AI Smart Nory Mc Travel Agency",
   "description": "An interactive full-stack AI Travel Assistant and Planner that creates customized structural itineraries, explore simulated flights and hotels, maintains a travel vault, and chats in both Arabic and English.",
   "requestFramePermissions": [
-    "geolocation"
+    "geolocation",
+    "microphone"
   ],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

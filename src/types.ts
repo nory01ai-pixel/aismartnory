@@ -226,4 +226,8 @@ export interface Message {
   text: string;
   timestamp: string;
   isOfflineFallback?: boolean;
+  image?: {
+    mimeType: string;
+    data: string; // Base64 string
+  };
 }
